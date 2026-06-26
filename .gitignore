@@ -1,0 +1,13 @@
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+*.so
+*.dylib
+*.a
+.DS_Store
+*.swp
+*.swo
