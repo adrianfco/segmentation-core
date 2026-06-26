@@ -80,3 +80,9 @@ add_executable(test_segmentation
 target_link_libraries(test_segmentation PRIVATE segmentation_lib)
 
 add_test(NAME cpp_tests COMMAND test_segmentation)
+
+# -------------------------
+# Install
+# -------------------------
+
+install(TARGETS segmentation_core LIBRARY DESTINATION .)

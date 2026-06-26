@@ -1,18 +1,12 @@
 """Python binding tests for segmentation_core."""
 
 import os
-import sys
 import pathlib
 import tempfile
 
 import pytest
 
-# Allow running without install: look for the .so in the build directory.
-_build_dir = pathlib.Path(__file__).parent.parent / "build"
-if str(_build_dir) not in sys.path:
-    sys.path.insert(0, str(_build_dir))
-
-import segmentation_core  # noqa: E402
+import segmentation_core
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 FOUR_COLORS = str(FIXTURES / "test_4colors.png")

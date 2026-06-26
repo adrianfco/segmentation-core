@@ -29,7 +29,7 @@ Both algorithms are seeded and reproducible.
 
 ---
 
-## Build
+## Installation
 
 **Requirements**
 
@@ -37,23 +37,33 @@ Both algorithms are seeded and reproducible.
 - A C++17 compiler (GCC, Clang, MSVC)
 - Python ≥ 3.8 with development headers (`python3-dev`)
 
-Dependencies (`stb_image`, `pybind11`) are fetched automatically by CMake.
+C++ dependencies (`stb_image`, `pybind11`) are fetched automatically at build time.
+
+**Install directly from GitHub:**
+
+```bash
+pip install git+https://github.com/youruser/segmentation-core.git
+```
+
+**Or from a local clone:**
+
+```bash
+git clone https://github.com/youruser/segmentation-core.git
+pip install ./segmentation-core
+```
+
+**For C++-only use** (no Python, e.g. embedding the library):
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-The Python module is built at `build/segmentation_core*.so`.
-
 ---
 
 ## Python API
 
 ```python
-import sys
-sys.path.insert(0, "build")
-
 from segmentation_core import segment_image
 
 result = segment_image(
