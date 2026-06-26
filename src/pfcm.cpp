@@ -66,19 +66,71 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         }
     }
 
-    const double exp_u   = 1.0 / (m   - 1.0);
-    const double exp_t   = 1.0 / (eta - 1.0);
-    const double a       = 1.0; // balance between membership and typicality
+    const double exp_u = 1.0 / (m   - 1.0);
+    const double exp_t = 1.0 / (eta - 1.0);
+    const double a     = 1.0; // balance between membership and typicality
 
-    std::vector<double> u(n * k, 1.0 / k);  // fuzzy membership matrix
-    std::vector<double> t(n * k, 1.0 / k);  // typicality matrix
-
-    // Per-cluster "gamma" for typicality normalization: sum_j u_ij^m * d_ij^2
+    std::vector<double> u(n * k);
+    std::vector<double> t(n * k);
     std::vector<double> gamma(k, 0.0);
+
+    // Compute u and t from the initial KMeans++ centroids before the first
+    // centroid update. Without this, u=1/k uniform weights collapse all
+    // centroids to the image mean on the very first iteration.
+    auto update_u = [&]() {
+        for (int p = 0; p < n; ++p) {
+            const unsigned char* px = &img.data[p * 3];
+            std::vector<double> dists(k);
+            for (int i = 0; i < k; ++i) dists[i] = sq_dist(px, centers[i]);
+
+            for (int i = 0; i < k; ++i) {
+                if (dists[i] < 1e-10) {
+                    for (int j = 0; j < k; ++j) u[p * k + j] = (i == j) ? 1.0 : 0.0;
+                    goto next_pixel_u;
+                }
+            }
+            for (int i = 0; i < k; ++i) {
+                double sum = 0.0;
+                for (int j = 0; j < k; ++j) {
+                    if (dists[j] < 1e-10) { sum = std::numeric_limits<double>::infinity(); break; }
+                    sum += std::pow(dists[i] / dists[j], exp_u);
+                }
+                u[p * k + i] = (sum > 0) ? 1.0 / sum : 0.0;
+            }
+            next_pixel_u:;
+        }
+    };
+
+    auto update_gamma_and_t = [&]() {
+        // gamma_i = sum_p u_pi^m * d_pi^2 / sum_p u_pi^m  (Pal et al. 2005)
+        std::vector<double> num(k, 0.0), den(k, 0.0);
+        for (int p = 0; p < n; ++p) {
+            for (int i = 0; i < k; ++i) {
+                double um = std::pow(u[p * k + i], m);
+                num[i] += um * sq_dist(&img.data[p * 3], centers[i]);
+                den[i] += um;
+            }
+        }
+        for (int i = 0; i < k; ++i) {
+            gamma[i] = (den[i] > 0) ? num[i] / den[i] : 1e-10;
+            if (gamma[i] < 1e-10) gamma[i] = 1e-10;
+        }
+
+        for (int p = 0; p < n; ++p) {
+            const unsigned char* px = &img.data[p * 3];
+            for (int i = 0; i < k; ++i) {
+                double d = sq_dist(px, centers[i]);
+                t[p * k + i] = 1.0 / (1.0 + std::pow(d / gamma[i], exp_t));
+            }
+        }
+    };
+
+    update_u();
+    update_gamma_and_t();
 
     int iters = 0;
     for (; iters < max_iters; ++iters) {
-        // --- Update centroids ---
+        // --- Update centroids using current u and t ---
         std::vector<Centroid> new_centers(k);
         std::vector<double>   denom(k, 0.0);
         for (auto& c : new_centers) c.fill(0.0);
@@ -106,51 +158,11 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
             }
         }
 
-        // --- Update gamma (typicality scale per cluster) ---
-        std::fill(gamma.begin(), gamma.end(), 0.0);
-        std::vector<int> gamma_count(k, 0);
-        for (int p = 0; p < n; ++p) {
-            for (int i = 0; i < k; ++i) {
-                gamma[i] += std::pow(u[p * k + i], m) * sq_dist(&img.data[p * 3], centers[i]);
-                gamma_count[i]++;
-            }
-        }
-        for (int i = 0; i < k; ++i) {
-            if (gamma_count[i] > 0) gamma[i] /= gamma_count[i];
-            if (gamma[i] < 1e-10)   gamma[i]  = 1e-10;
-        }
-
-        // --- Update membership u ---
-        for (int p = 0; p < n; ++p) {
-            const unsigned char* px = &img.data[p * 3];
-            std::vector<double> dists(k);
-            for (int i = 0; i < k; ++i) dists[i] = sq_dist(px, centers[i]);
-
-            for (int i = 0; i < k; ++i) {
-                if (dists[i] < 1e-10) {
-                    // Exactly on center: full membership
-                    for (int j = 0; j < k; ++j) u[p * k + j] = (i == j) ? 1.0 : 0.0;
-                    break;
-                }
-                double sum = 0.0;
-                for (int j = 0; j < k; ++j) {
-                    if (dists[j] < 1e-10) { sum = std::numeric_limits<double>::infinity(); break; }
-                    sum += std::pow(dists[i] / dists[j], exp_u);
-                }
-                u[p * k + i] = (sum > 0) ? 1.0 / sum : 0.0;
-            }
-        }
-
-        // --- Update typicality t ---
-        for (int p = 0; p < n; ++p) {
-            const unsigned char* px = &img.data[p * 3];
-            for (int i = 0; i < k; ++i) {
-                double d = sq_dist(px, centers[i]);
-                t[p * k + i] = 1.0 / (1.0 + std::pow(d / gamma[i], exp_t));
-            }
-        }
-
         if (max_shift < 1e-8) break;
+
+        // --- Update u, gamma, t for next centroid step ---
+        update_u();
+        update_gamma_and_t();
     }
 
     // Assign each pixel to the cluster with highest membership

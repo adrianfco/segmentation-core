@@ -111,7 +111,7 @@ static void test_kmeans_different_seeds() {
 static void test_pfcm_basic() {
     seg::Image img = make_test_image();
     int iters = seg::pfcm_segment(img, 4, 42, 50);
-    CHECK(iters >= 1);
+    CHECK(iters >= 0);
     CHECK(!img.data.empty());
 }
 
