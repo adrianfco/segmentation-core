@@ -55,6 +55,8 @@ target_include_directories(segmentation_lib PUBLIC
   ${stb_SOURCE_DIR}
 )
 
+set_target_properties(segmentation_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # -------------------------
 # Python module
 # -------------------------
