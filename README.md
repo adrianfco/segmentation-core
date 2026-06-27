@@ -42,13 +42,13 @@ C++ dependencies (`stb_image`, `pybind11`) are fetched automatically at build ti
 **Install directly from GitHub:**
 
 ```bash
-pip install git+https://github.com/youruser/segmentation-core.git
+pip install git+https://github.com/adrianfco/segmentation-core.git
 ```
 
 **Or from a local clone:**
 
 ```bash
-git clone https://github.com/youruser/segmentation-core.git
+git clone https://github.com/adrianfco/segmentation-core.git
 pip install ./segmentation-core
 ```
 
