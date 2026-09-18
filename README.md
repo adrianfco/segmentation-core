@@ -39,6 +39,17 @@ Both algorithms are seeded and reproducible.
 
 C++ dependencies (`stb_image`, `pybind11`) are fetched automatically at build time.
 
+**Prebuilt wheel (Linux x86_64, no compiler needed):**
+
+Download the `.whl` matching your Python version from the
+[Releases page](https://github.com/adrianfco/segmentation-core/releases) and run:
+
+```bash
+pip install ./segmentation_core-<version>-<tags>.whl
+```
+
+> Early release: the API may change between `0.x` versions.
+
 **Install directly from GitHub:**
 
 ```bash

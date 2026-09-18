@@ -3,35 +3,28 @@ project(segmentation_core VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS OFF)  # -std=c++17, not gnu++17
 
-# Build type default
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Compiler warnings
 if(MSVC)
   add_compile_options(/W4)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# -------------------------
-# Dependencies
-# -------------------------
-
-# stb_image (header-only, vendored or fetched)
+# no system packages needed, both deps are fetched at configure time
 include(FetchContent)
 
 FetchContent_Declare(
   stb
   GIT_REPOSITORY https://github.com/nothings/stb.git
-  GIT_TAG        master
+  GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20  # pinned so wheels are reproducible
 )
 FetchContent_MakeAvailable(stb)
 
-# pybind11
 FetchContent_Declare(
   pybind11
   GIT_REPOSITORY https://github.com/pybind/pybind11.git
@@ -39,10 +32,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-# -------------------------
-# Core library
-# -------------------------
-
+# engine is a static lib so the python module and the C++ tests share it
 add_library(segmentation_lib STATIC
   src/image_io.cpp
   src/kmeans.cpp
@@ -55,21 +45,14 @@ target_include_directories(segmentation_lib PUBLIC
   ${stb_SOURCE_DIR}
 )
 
+# needed to link the static lib into the python .so
 set_target_properties(segmentation_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-# -------------------------
-# Python module
-# -------------------------
 
 pybind11_add_module(segmentation_core
   src/bindings.cpp
 )
 
 target_link_libraries(segmentation_core PRIVATE segmentation_lib)
-
-# -------------------------
-# C++ tests
-# -------------------------
 
 enable_testing()
 
@@ -81,8 +64,5 @@ target_link_libraries(test_segmentation PRIVATE segmentation_lib)
 
 add_test(NAME cpp_tests COMMAND test_segmentation)
 
-# -------------------------
-# Install
-# -------------------------
-
+# top level of the wheel, so `import segmentation_core` works
 install(TARGETS segmentation_core LIBRARY DESTINATION .)
