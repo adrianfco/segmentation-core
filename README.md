@@ -77,3 +77,17 @@ pip install . pytest
 python tests/make_fixture.py
 pytest tests/test_python_bindings.py
 ```
+
+## Benchmarks
+
+`bench_segmentation` times both algorithms on synthetic in-memory images
+(1, 4 and 16 MP; k = 4, 8, 16), without disk I/O, and reports the median time
+and ns per pixel per iteration.
+
+```bash
+./build/bench_segmentation > results.csv             # full grid, ~23 min
+./build/bench_segmentation --algo pfcm --mp 1 --k 8  # one config, to the terminal
+```
+
+Rows go to stdout as CSV, progress to stderr them on screen. The heaviest config (PFCM, 16 MP, k=16) takes ~12 min and ~4 GB.
+Baseline numbers are in [`bench/results/`](bench/results/).

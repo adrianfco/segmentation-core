@@ -64,5 +64,11 @@ target_link_libraries(test_segmentation PRIVATE segmentation_lib)
 
 add_test(NAME cpp_tests COMMAND test_segmentation)
 
+add_executable(bench_segmentation
+  bench/bench_segmentation.cpp
+)
+
+target_link_libraries(bench_segmentation PRIVATE segmentation_lib)
+
 # top level of the wheel, so `import segmentation_core` works
 install(TARGETS segmentation_core LIBRARY DESTINATION .)
