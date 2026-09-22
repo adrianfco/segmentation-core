@@ -3,13 +3,11 @@
 #include "kmeans.hpp"
 #include "pfcm.hpp"
 
-#include <cassert>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
 
-// Minimal assertion helper that prints context on failure.
 #define CHECK(cond)                                                          \
     do {                                                                     \
         if (!(cond)) {                                                       \
@@ -20,10 +18,6 @@
     } while (false)
 
 namespace fs = std::filesystem;
-
-// ----------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------
 
 static seg::Image make_test_image(int w = 16, int h = 16) {
     seg::Image img;
@@ -48,10 +42,6 @@ static seg::Image make_test_image(int w = 16, int h = 16) {
     }
     return img;
 }
-
-// ----------------------------------------------------------------
-// Tests
-// ----------------------------------------------------------------
 
 static void test_params_validation() {
     // Empty input path
@@ -97,17 +87,6 @@ static void test_kmeans_reproducible() {
     CHECK(a.data == b.data);
 }
 
-static void test_kmeans_different_seeds() {
-    seg::Image a = make_test_image();
-    seg::Image b = make_test_image();
-    seg::kmeans_segment(a, 4, 1, 100);
-    seg::kmeans_segment(b, 4, 999, 100);
-    // Different seeds are very likely to produce different results on this image.
-    // This test just ensures both runs complete and produce valid pixel data.
-    CHECK(!a.data.empty());
-    CHECK(!b.data.empty());
-}
-
 static void test_pfcm_basic() {
     seg::Image img = make_test_image();
     int iters = seg::pfcm_segment(img, 4, 42, 50);
@@ -124,7 +103,6 @@ static void test_pfcm_reproducible() {
 }
 
 static void test_segment_image_kmeans_end_to_end() {
-    // Write the synthetic image to a temp file then run via the public API.
     const std::string tmp_in  = "/tmp/seg_test_input.png";
     const std::string tmp_out = "/tmp/seg_test_output_kmeans.png";
 
@@ -182,17 +160,12 @@ static void test_image_io_roundtrip() {
     CHECK(loaded.data     == orig.data);
 }
 
-// ----------------------------------------------------------------
-// Runner
-// ----------------------------------------------------------------
-
 int main() {
     std::cout << "Running segmentation tests...\n";
 
     test_params_validation();            std::cout << "  params_validation       OK\n";
     test_kmeans_basic();                 std::cout << "  kmeans_basic            OK\n";
     test_kmeans_reproducible();          std::cout << "  kmeans_reproducible     OK\n";
-    test_kmeans_different_seeds();       std::cout << "  kmeans_different_seeds  OK\n";
     test_pfcm_basic();                   std::cout << "  pfcm_basic              OK\n";
     test_pfcm_reproducible();            std::cout << "  pfcm_reproducible       OK\n";
     test_segment_image_kmeans_end_to_end(); std::cout << "  segment_image_kmeans    OK\n";

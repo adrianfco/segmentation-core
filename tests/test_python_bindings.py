@@ -2,7 +2,6 @@
 
 import os
 import pathlib
-import tempfile
 
 import pytest
 
@@ -13,10 +12,6 @@ FOUR_COLORS = str(FIXTURES / "test_4colors.png")
 GRAY = str(FIXTURES / "test_gray.png")
 
 
-# ----------------------------------------------------------------
-# Module import
-# ----------------------------------------------------------------
-
 def test_module_importable():
     assert hasattr(segmentation_core, "segment_image")
 
@@ -24,10 +19,6 @@ def test_module_importable():
 def test_result_type_exists():
     assert hasattr(segmentation_core, "SegmentationResult")
 
-
-# ----------------------------------------------------------------
-# Basic API correctness
-# ----------------------------------------------------------------
 
 def test_kmeans_returns_result(tmp_path):
     out = str(tmp_path / "out.png")
@@ -64,19 +55,12 @@ def test_pfcm_returns_result(tmp_path):
     assert os.path.exists(out)
 
 
-def test_result_repr():
-    with tempfile.TemporaryDirectory() as d:
-        out = os.path.join(d, "out.png")
-        r = segmentation_core.segment_image(
-            image_path=FOUR_COLORS, output_path=out, k=2, seed=0, max_iters=10
-        )
-        rep = repr(r)
-        assert "SegmentationResult" in rep
+def test_result_repr(tmp_path):
+    r = segmentation_core.segment_image(
+        image_path=FOUR_COLORS, output_path=str(tmp_path / "out.png"), k=2, seed=0, max_iters=10
+    )
+    assert "SegmentationResult" in repr(r)
 
-
-# ----------------------------------------------------------------
-# Reproducibility
-# ----------------------------------------------------------------
 
 def test_kmeans_reproducible(tmp_path):
     out_a = str(tmp_path / "a.png")
@@ -95,10 +79,6 @@ def test_pfcm_reproducible(tmp_path):
     segmentation_core.segment_image(output_path=out_b, **args)
     assert open(out_a, "rb").read() == open(out_b, "rb").read()
 
-
-# ----------------------------------------------------------------
-# Error handling — result.success == False, no exception
-# ----------------------------------------------------------------
 
 def test_nonexistent_input_file(tmp_path):
     out = str(tmp_path / "out.png")
@@ -143,10 +123,6 @@ def test_empty_output_path():
     assert not result.success
 
 
-# ----------------------------------------------------------------
-# Gray image (k > unique colors)
-# ----------------------------------------------------------------
-
 def test_gray_image_kmeans(tmp_path):
     out = str(tmp_path / "out.png")
     result = segmentation_core.segment_image(
@@ -160,10 +136,6 @@ def test_gray_image_kmeans(tmp_path):
     assert result.width  == 8
     assert result.height == 8
 
-
-# ----------------------------------------------------------------
-# Output file is created
-# ----------------------------------------------------------------
 
 def test_output_file_created(tmp_path):
     out = str(tmp_path / "result.png")

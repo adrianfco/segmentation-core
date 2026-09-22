@@ -20,7 +20,6 @@ SegmentationResult segment_image(const SegmentationParams& params) {
     SegmentationResult result;
     result.algorithm = algorithm_name(params.algorithm);
 
-    // Parameter validation
     if (params.input_path.empty()) {
         result.error_message = "input_path is empty";
         return result;
@@ -38,7 +37,7 @@ SegmentationResult segment_image(const SegmentationParams& params) {
         return result;
     }
 
-    auto t_start = std::chrono::high_resolution_clock::now();
+    auto t_start = std::chrono::steady_clock::now();
 
     try {
         Image img = load_image(params.input_path);
@@ -59,17 +58,13 @@ SegmentationResult segment_image(const SegmentationParams& params) {
 
         save_image(params.output_path, img);
         result.output_path = params.output_path;
-
+        result.success     = true;
     } catch (const std::exception& e) {
         result.error_message = e.what();
-        auto t_end = std::chrono::high_resolution_clock::now();
-        result.runtime_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-        return result;
     }
 
-    auto t_end = std::chrono::high_resolution_clock::now();
+    auto t_end = std::chrono::steady_clock::now();
     result.runtime_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-    result.success = true;
     return result;
 }
 

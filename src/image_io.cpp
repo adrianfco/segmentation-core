@@ -6,8 +6,9 @@
 #include <stb_image.h>
 #include <stb_image_write.h>
 
-#include <stdexcept>
+#include <cctype>
 #include <filesystem>
+#include <stdexcept>
 
 namespace seg {
 
@@ -20,7 +21,7 @@ Image load_image(const std::string& path) {
     unsigned char* raw = stbi_load(path.c_str(), &w, &h, &c, 3);
     if (!raw) {
         throw std::runtime_error("Failed to decode image: " + path +
-                                 " — " + stbi_failure_reason());
+                                 ": " + stbi_failure_reason());
     }
 
     Image img;
@@ -37,7 +38,6 @@ void save_image(const std::string& path, const Image& img) {
         throw std::runtime_error("Cannot save empty image to: " + path);
     }
 
-    // Determine format from extension
     auto ext_pos = path.rfind('.');
     if (ext_pos == std::string::npos) {
         throw std::runtime_error("Output path has no extension: " + path);

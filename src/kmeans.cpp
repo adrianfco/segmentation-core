@@ -39,7 +39,7 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
     const int n_pixels = img.width * img.height;
     if (n_pixels == 0) throw std::runtime_error("Image has no pixels");
 
-    // KMeans++ initialization for better convergence
+    // KMeans++ init
     std::mt19937 rng(static_cast<unsigned>(seed));
 
     std::vector<Centroid> centroids(k);

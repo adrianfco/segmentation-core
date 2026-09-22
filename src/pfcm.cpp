@@ -37,7 +37,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     const int n = img.width * img.height;
     if (n == 0) throw std::runtime_error("Image has no pixels");
 
-    // Random centroid initialization (same approach as KMeans++ for reproducibility)
+    // KMeans++ init, same as kmeans.cpp
     std::mt19937 rng(static_cast<unsigned>(seed));
     std::vector<Centroid> centers(k);
     {
@@ -130,7 +130,6 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
 
     int iters = 0;
     for (; iters < max_iters; ++iters) {
-        // --- Update centroids using current u and t ---
         std::vector<Centroid> new_centers(k);
         std::vector<double>   denom(k, 0.0);
         for (auto& c : new_centers) c.fill(0.0);
@@ -160,12 +159,11 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
 
         if (max_shift < 1e-8) break;
 
-        // --- Update u, gamma, t for next centroid step ---
         update_u();
         update_gamma_and_t();
     }
 
-    // Assign each pixel to the cluster with highest membership
+    // Hard assignment: each pixel takes the color of its highest-membership cluster
     for (int p = 0; p < n; ++p) {
         int best = 0;
         double best_u = u[p * k];

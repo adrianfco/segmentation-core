@@ -17,7 +17,7 @@ seg::Algorithm parse_algorithm(const std::string& name) {
 } // anonymous namespace
 
 PYBIND11_MODULE(segmentation_core, m) {
-    m.doc() = "CPU image segmentation engine — KMeans and PFCM";
+    m.doc() = "CPU image segmentation (KMeans, PFCM)";
 
     py::class_<seg::SegmentationResult>(m, "SegmentationResult")
         .def_readonly("success",       &seg::SegmentationResult::success)

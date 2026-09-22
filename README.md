@@ -1,118 +1,55 @@
 # segmentation-core
 
-A CPU image segmentation engine written in C++ with Python bindings via pybind11.
+Color segmentation of images on the CPU, written in C++17 with Python bindings (pybind11).
+Two algorithms: KMeans with KMeans++ init, and PFCM (Possibilistic Fuzzy C-Means).
 
-Supports **KMeans** and **PFCM** (Possibilistic Fuzzy C-Means) segmentation.  
-Designed as a clean, testable library that a Python application can call directly.
+`segment_image` loads an image, clusters its pixels by color, writes the result
+(each pixel replaced by its cluster's color) and returns runtime, iteration count
+and image size. Results are deterministic for a given seed.
 
----
+This is the engine behind [segmentation-api](https://github.com/adrianfco/segmentation-api).
 
-## What it does
+## Install
 
-Given an image path, an algorithm, and a set of parameters, the engine:
-
-1. Loads the input image from disk
-2. Runs the selected segmentation algorithm
-3. Writes the segmented image to a specified output path
-4. Returns structured metadata (runtime, iterations, dimensions, success/error)
-
----
-
-## Algorithms
-
-| Algorithm | Key |
-|-----------|-----|
-| KMeans (KMeans++ init) | `"kmeans"` |
-| Possibilistic Fuzzy C-Means | `"pfcm"` |
-
-Both algorithms are seeded and reproducible.
-
----
-
-## Installation
-
-**Requirements**
-
-- CMake ≥ 3.15
-- A C++17 compiler (GCC, Clang, MSVC)
-- Python ≥ 3.8 with development headers (`python3-dev`)
-
-C++ dependencies (`stb_image`, `pybind11`) are fetched automatically at build time.
-
-**Prebuilt wheel (Linux x86_64, no compiler needed):**
-
-Download the `.whl` matching your Python version from the
-[Releases page](https://github.com/adrianfco/segmentation-core/releases) and run:
+Prebuilt wheels for Linux x86_64 (CPython 3.10 to 3.13) are attached to each
+[release](https://github.com/adrianfco/segmentation-core/releases):
 
 ```bash
 pip install ./segmentation_core-<version>-<tags>.whl
 ```
 
-> Early release: the API may change between `0.x` versions.
-
-**Install directly from GitHub:**
+From source (needs CMake >= 3.15, a C++17 compiler and Python headers;
+stb and pybind11 are fetched by CMake):
 
 ```bash
 pip install git+https://github.com/adrianfco/segmentation-core.git
 ```
 
-**Or from a local clone:**
-
-```bash
-git clone https://github.com/adrianfco/segmentation-core.git
-pip install ./segmentation-core
-```
-
-**For C++-only use** (no Python, e.g. embedding the library):
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
-
----
-
-## Python API
+## Python
 
 ```python
 from segmentation_core import segment_image
 
-result = segment_image(
+r = segment_image(
     image_path="input.png",
-    output_path="output.png",
-    algorithm="kmeans",  # or "pfcm"
+    output_path="output.png",  # .png, .jpg or .bmp
+    algorithm="kmeans",        # or "pfcm"
     k=4,
     seed=42,
     max_iters=100,
+    pfcm_m=2.0,                # PFCM only: fuzziness exponent, > 1
+    pfcm_eta=2.0,              # PFCM only: typicality exponent, > 1
 )
 
-print(result.success)      # bool
-print(result.runtime_ms)   # float — wall time in milliseconds
-print(result.iterations)   # int   — iterations executed
-print(result.width)        # int
-print(result.height)       # int
-print(result.algorithm)    # str   — "kmeans" or "pfcm"
-print(result.error_message)  # str — non-empty on failure
+if not r.success:
+    print(r.error_message)
+print(r.runtime_ms, r.iterations, r.width, r.height)
 ```
 
-### PFCM-specific parameters
+Bad inputs (missing file, `k < 1`, unwritable output) come back as
+`success=False` with `error_message` set. An unknown `algorithm` raises `ValueError`.
 
-```python
-result = segment_image(
-    image_path="input.png",
-    output_path="output.png",
-    algorithm="pfcm",
-    k=4,
-    seed=42,
-    max_iters=100,
-    pfcm_m=2.0,    # fuzziness exponent (> 1)
-    pfcm_eta=2.0,  # typicality exponent (> 1)
-)
-```
-
----
-
-## C++ API
+## C++
 
 ```cpp
 #include "segmentation.hpp"
@@ -120,76 +57,23 @@ result = segment_image(
 seg::SegmentationParams p;
 p.input_path  = "input.png";
 p.output_path = "output.png";
-p.algorithm   = seg::Algorithm::KMeans;
+p.algorithm   = seg::Algorithm::PFCM;
 p.k           = 4;
-p.seed        = 42;
-p.max_iters   = 100;
 
 seg::SegmentationResult r = seg::segment_image(p);
-
-if (!r.success) {
-    std::cerr << r.error_message << "\n";
-}
 ```
 
----
+`kmeans_segment` and `pfcm_segment` (`include/kmeans.hpp`, `include/pfcm.hpp`)
+work directly on an in-memory `seg::Image` if you don't want file I/O.
 
-## Tests
-
-**C++**
+## Build and test
 
 ```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ./build/test_segmentation
+
+pip install . pytest
+python tests/make_fixture.py
+pytest tests/test_python_bindings.py
 ```
-
-**Python**
-
-```bash
-python3 -m pytest tests/test_python_bindings.py -v
-```
-
----
-
-## Project layout
-
-```
-segmentation-core/
-  CMakeLists.txt
-  include/
-    segmentation.hpp    — public API types and entry point
-    image_io.hpp        — image load/save interface
-    kmeans.hpp
-    pfcm.hpp
-  src/
-    segmentation.cpp    — orchestration: validate → load → dispatch → save
-    image_io.cpp        — stb_image-based I/O
-    kmeans.cpp          — KMeans++ implementation
-    pfcm.cpp            — PFCM implementation
-    bindings.cpp        — pybind11 module
-  tests/
-    test_segmentation.cpp   — C++ tests
-    test_python_bindings.py — Python tests
-    fixtures/               — small PNG fixtures
-  .github/workflows/
-    ci.yml
-```
-
----
-
-## Adding a new algorithm
-
-1. Add `include/myalgo.hpp` and `src/myalgo.cpp`
-2. Add an entry to the `Algorithm` enum in `segmentation.hpp`
-3. Add a dispatch branch in `segmentation.cpp`
-4. Expose any new parameters on `SegmentationParams` if needed
-5. Add tests
-6. Update this README
-
----
-
-## Roadmap
-
-- Additional algorithms (SLIC superpixels, watershed, graph cut)
-- Optional in-memory buffer API (skip disk I/O for embedded use)
-- GPU/CUDA backend (separate module, same Python interface)
-- Benchmark suite
