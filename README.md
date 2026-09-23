@@ -49,6 +49,8 @@ print(r.runtime_ms, r.iterations, r.width, r.height)
 Bad inputs (missing file, `k < 1`, unwritable output) come back as
 `success=False` with `error_message` set. An unknown `algorithm` raises `ValueError`.
 
+`segment_image` releases the GIL while it runs.
+
 ## C++
 
 ```cpp

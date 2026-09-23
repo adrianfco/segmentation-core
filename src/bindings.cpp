@@ -55,6 +55,7 @@ PYBIND11_MODULE(segmentation_core, m) {
             p.pfcm_eta    = pfcm_eta;
             return seg::segment_image(p);
         },
+        py::call_guard<py::gil_scoped_release>(),
         py::arg("image_path"),
         py::arg("output_path"),
         py::arg("algorithm") = "kmeans",

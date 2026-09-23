@@ -6,13 +6,12 @@ def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", crc)
 
 def write_png(path: str, width: int, height: int, pixels: list[tuple[int,int,int]]) -> None:
-    raw = b""
+    raw = bytearray()
     for y in range(height):
-        raw += b"\x00"
+        raw.append(0)
         for x in range(width):
-            r, g, b = pixels[y * width + x]
-            raw += bytes([r, g, b])
-    compressed = zlib.compress(raw, 9)
+            raw.extend(pixels[y * width + x])
+    compressed = zlib.compress(bytes(raw), 9)
 
     data = b"\x89PNG\r\n\x1a\n"
     data += _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
