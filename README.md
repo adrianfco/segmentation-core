@@ -68,6 +68,14 @@ seg::SegmentationResult r = seg::segment_image(p);
 `kmeans_segment` and `pfcm_segment` (`include/kmeans.hpp`, `include/pfcm.hpp`)
 work directly on an in-memory `seg::Image` if you don't want file I/O.
 
+## Parallelism
+
+The per-pixel loops of both algorithms are parallelized with OpenMP, and
+`OMP_NUM_THREADS` sets the thread count. Partial sums are accumulated in
+fixed-size pixel chunks and merged in chunk order, so the output is
+bit-identical whatever the thread count, and identical again to a serial build. 
+OpenMP is used when CMake finds it and skipped otherwise.
+
 ## Build and test
 
 ```bash
@@ -87,8 +95,9 @@ pytest tests/test_python_bindings.py
 and ns per pixel per iteration.
 
 ```bash
-./build/bench_segmentation > results.csv             # full grid, ~23 min
+./build/bench_segmentation > results.csv             # full grid, ~23 min on one core
 ./build/bench_segmentation --algo pfcm --mp 1 --k 8  # one config, to the terminal
+./build/bench_segmentation --threads 4               # pin the run to 4 threads
 ```
 
 Rows go to stdout as CSV, progress to stderr them on screen. The heaviest config (PFCM, 16 MP, k=16) takes ~12 min and ~4 GB.

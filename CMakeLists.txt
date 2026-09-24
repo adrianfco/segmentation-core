@@ -48,6 +48,17 @@ target_include_directories(segmentation_lib PUBLIC
 # needed to link the static lib into the python .so
 set_target_properties(segmentation_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+option(SEG_ENABLE_OPENMP "Parallelize the segmentation loops with OpenMP" ON)
+
+if(SEG_ENABLE_OPENMP)
+  find_package(OpenMP)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(segmentation_lib PUBLIC OpenMP::OpenMP_CXX)
+  else()
+    message(STATUS "OpenMP not found, the segmentation loops will run serially")
+  endif()
+endif()
+
 pybind11_add_module(segmentation_core
   src/bindings.cpp
 )

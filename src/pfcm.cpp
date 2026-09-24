@@ -1,5 +1,7 @@
 #include "pfcm.hpp"
 
+#include "parallel.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -47,14 +49,17 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
 
         std::vector<double> dist_sq(n);
         for (int ci = 1; ci < k; ++ci) {
-            double total = 0.0;
+            SEG_OMP(parallel for schedule(static))
             for (int p = 0; p < n; ++p) {
                 dist_sq[p] = std::numeric_limits<double>::max();
                 for (int prev = 0; prev < ci; ++prev) {
                     dist_sq[p] = std::min(dist_sq[p], sq_dist(&img.data[p * 3], centers[prev]));
                 }
-                total += dist_sq[p];
             }
+            // summed serially so the picked centroid does not depend on threads
+            double total = 0.0;
+            for (int p = 0; p < n; ++p) total += dist_sq[p];
+
             std::uniform_real_distribution<double> wheel(0.0, total);
             double r = wheel(rng), acc = 0.0;
             int chosen = n - 1;
@@ -74,48 +79,71 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     std::vector<double> t(n * k);
     std::vector<double> gamma(k, 0.0);
 
+    const int n_chunks      = detail::chunk_count(n);
+    const int gamma_stride  = detail::partial_stride(2 * k);  // num, den per cluster
+    const int center_stride = detail::partial_stride(4 * k);  // r, g, b, weight
+
     // Compute u and t from the initial KMeans++ centroids before the first
     // centroid update. Without this, u=1/k uniform weights collapse all
     // centroids to the image mean on the very first iteration.
     auto update_u = [&]() {
-        for (int p = 0; p < n; ++p) {
-            const unsigned char* px = &img.data[p * 3];
+        SEG_OMP(parallel)
+        {
             std::vector<double> dists(k);
-            for (int i = 0; i < k; ++i) dists[i] = sq_dist(px, centers[i]);
 
-            for (int i = 0; i < k; ++i) {
-                if (dists[i] < 1e-10) {
-                    for (int j = 0; j < k; ++j) u[p * k + j] = (i == j) ? 1.0 : 0.0;
-                    goto next_pixel_u;
+            SEG_OMP(for schedule(static))
+            for (int p = 0; p < n; ++p) {
+                const unsigned char* px = &img.data[p * 3];
+                for (int i = 0; i < k; ++i) dists[i] = sq_dist(px, centers[i]);
+
+                int on_center = -1;
+                for (int i = 0; i < k; ++i) {
+                    if (dists[i] < 1e-10) { on_center = i; break; }
+                }
+                if (on_center >= 0) {
+                    for (int j = 0; j < k; ++j) u[p * k + j] = (on_center == j) ? 1.0 : 0.0;
+                    continue;
+                }
+                for (int i = 0; i < k; ++i) {
+                    double sum = 0.0;
+                    for (int j = 0; j < k; ++j) sum += std::pow(dists[i] / dists[j], exp_u);
+                    u[p * k + i] = (sum > 0) ? 1.0 / sum : 0.0;
                 }
             }
-            for (int i = 0; i < k; ++i) {
-                double sum = 0.0;
-                for (int j = 0; j < k; ++j) {
-                    if (dists[j] < 1e-10) { sum = std::numeric_limits<double>::infinity(); break; }
-                    sum += std::pow(dists[i] / dists[j], exp_u);
-                }
-                u[p * k + i] = (sum > 0) ? 1.0 / sum : 0.0;
-            }
-            next_pixel_u:;
         }
     };
 
     auto update_gamma_and_t = [&]() {
         // gamma_i = sum_p u_pi^m * d_pi^2 / sum_p u_pi^m  (Pal et al. 2005)
-        std::vector<double> num(k, 0.0), den(k, 0.0);
-        for (int p = 0; p < n; ++p) {
-            for (int i = 0; i < k; ++i) {
-                double um = std::pow(u[p * k + i], m);
-                num[i] += um * sq_dist(&img.data[p * 3], centers[i]);
-                den[i] += um;
+        std::vector<double> partials(static_cast<size_t>(n_chunks) * gamma_stride, 0.0);
+
+        SEG_OMP(parallel for schedule(static))
+        for (int c = 0; c < n_chunks; ++c) {
+            double* acc = &partials[static_cast<size_t>(c) * gamma_stride];
+            for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
+                for (int i = 0; i < k; ++i) {
+                    double um = std::pow(u[p * k + i], m);
+                    acc[i * 2 + 0] += um * sq_dist(&img.data[p * 3], centers[i]);
+                    acc[i * 2 + 1] += um;
+                }
             }
         }
+
+        std::vector<double> num(k, 0.0), den(k, 0.0);
+        for (int c = 0; c < n_chunks; ++c) {
+            const double* acc = &partials[static_cast<size_t>(c) * gamma_stride];
+            for (int i = 0; i < k; ++i) {
+                num[i] += acc[i * 2 + 0];
+                den[i] += acc[i * 2 + 1];
+            }
+        }
+
         for (int i = 0; i < k; ++i) {
             gamma[i] = (den[i] > 0) ? num[i] / den[i] : 1e-10;
             if (gamma[i] < 1e-10) gamma[i] = 1e-10;
         }
 
+        SEG_OMP(parallel for schedule(static))
         for (int p = 0; p < n; ++p) {
             const unsigned char* px = &img.data[p * 3];
             for (int i = 0; i < k; ++i) {
@@ -134,14 +162,28 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         std::vector<double>   denom(k, 0.0);
         for (auto& c : new_centers) c.fill(0.0);
 
-        for (int p = 0; p < n; ++p) {
-            const unsigned char* px = &img.data[p * 3];
+        std::vector<double> partials(static_cast<size_t>(n_chunks) * center_stride, 0.0);
+
+        SEG_OMP(parallel for schedule(static))
+        for (int c = 0; c < n_chunks; ++c) {
+            double* acc = &partials[static_cast<size_t>(c) * center_stride];
+            for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
+                const unsigned char* px = &img.data[p * 3];
+                for (int i = 0; i < k; ++i) {
+                    double w = std::pow(u[p * k + i], m) + a * std::pow(t[p * k + i], eta);
+                    acc[i * 4 + 0] += w * px[0];
+                    acc[i * 4 + 1] += w * px[1];
+                    acc[i * 4 + 2] += w * px[2];
+                    acc[i * 4 + 3] += w;
+                }
+            }
+        }
+
+        for (int c = 0; c < n_chunks; ++c) {
+            const double* acc = &partials[static_cast<size_t>(c) * center_stride];
             for (int i = 0; i < k; ++i) {
-                double w = std::pow(u[p * k + i], m) + a * std::pow(t[p * k + i], eta);
-                new_centers[i][0] += w * px[0];
-                new_centers[i][1] += w * px[1];
-                new_centers[i][2] += w * px[2];
-                denom[i]          += w;
+                for (int ch = 0; ch < 3; ++ch) new_centers[i][ch] += acc[i * 4 + ch];
+                denom[i] += acc[i * 4 + 3];
             }
         }
         double max_shift = 0.0;
@@ -164,6 +206,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     }
 
     // Hard assignment: each pixel takes the color of its highest-membership cluster
+    SEG_OMP(parallel for schedule(static))
     for (int p = 0; p < n; ++p) {
         int best = 0;
         double best_u = u[p * k];

@@ -13,12 +13,17 @@
 #include <string>
 #include <vector>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 // Times kmeans_segment / pfcm_segment on in-memory synthetic images and writes
 // one CSV row per config to stdout. Image I/O is excluded so the numbers
 // reflect the algorithms only.
 //
 //   ./bench_segmentation > baseline.csv
 //   ./bench_segmentation --algo pfcm --mp 16 | column -t -s,
+//   ./bench_segmentation --threads 4 --algo kmeans
 
 namespace {
 
@@ -29,10 +34,19 @@ constexpr double kBudgetMs     = 10000.0; // stop repeating a config after this 
 constexpr int    kTrueClusters = 8;
 
 struct Options {
-    std::vector<std::string> algos = {"kmeans", "pfcm"};
-    std::vector<int>         mps   = {1, 4, 16};
-    std::vector<int>         ks    = {4, 8, 16};
+    std::vector<std::string> algos   = {"kmeans", "pfcm"};
+    std::vector<int>         mps     = {1, 4, 16};
+    std::vector<int>         ks      = {4, 8, 16};
+    int                      threads = 0;  // 0 keeps the OpenMP default
 };
+
+int thread_count() {
+#ifdef _OPENMP
+    return omp_get_max_threads();
+#else
+    return 1;
+#endif
+}
 
 struct Timing {
     int    iters;
@@ -42,7 +56,9 @@ struct Timing {
 };
 
 [[noreturn]] void usage(const char* prog) {
-    std::fprintf(stderr, "usage: %s [--algo kmeans|pfcm|all] [--mp 1,4,16] [--k 4,8,16]\n", prog);
+    std::fprintf(stderr,
+                 "usage: %s [--algo kmeans|pfcm|all] [--mp 1,4,16] [--k 4,8,16] [--threads N]\n",
+                 prog);
     std::exit(2);
 }
 
@@ -70,8 +86,9 @@ Options parse_args(int argc, char** argv) {
                 else if (value == "kmeans" || value == "pfcm")     opt.algos = {value};
                 else usage(argv[0]);
             }
-            else if (arg == "--mp") opt.mps = parse_int_list(value);
-            else if (arg == "--k")  opt.ks  = parse_int_list(value);
+            else if (arg == "--mp")      opt.mps     = parse_int_list(value);
+            else if (arg == "--k")       opt.ks      = parse_int_list(value);
+            else if (arg == "--threads") opt.threads = parse_int_list(value).at(0);
             else usage(argv[0]);
         } catch (const std::logic_error&) {
             usage(argv[0]);
@@ -153,8 +170,13 @@ void warm_up() {
 int main(int argc, char** argv) {
     Options opt = parse_args(argc, argv);
 
+#ifdef _OPENMP
+    if (opt.threads > 0) omp_set_num_threads(opt.threads);
+#endif
+    const int threads = thread_count();
+
     warm_up();
-    std::printf("algo,mp,width,height,k,iters,reps,median_ms,min_ms,ns_per_px_iter\n");
+    std::printf("algo,threads,mp,width,height,k,iters,reps,median_ms,min_ms,ns_per_px_iter\n");
 
     for (int mp : opt.mps) {
         int side = side_for_mp(mp);
@@ -163,12 +185,12 @@ int main(int argc, char** argv) {
 
         for (const auto& algo : opt.algos) {
             for (int k : opt.ks) {
-                std::fprintf(stderr, "%s %d MP k=%d ...", algo.c_str(), mp, k);
+                std::fprintf(stderr, "%s %d MP k=%d %d thread(s) ...", algo.c_str(), mp, k, threads);
                 Timing t = measure(algo, src, k);
                 std::fprintf(stderr, " %.1f ms\n", t.median_ms);
 
-                std::printf("%s,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.2f\n",
-                            algo.c_str(), mp, side, side, k, t.iters, t.reps,
+                std::printf("%s,%d,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.2f\n",
+                            algo.c_str(), threads, mp, side, side, k, t.iters, t.reps,
                             t.median_ms, t.min_ms,
                             t.median_ms * 1e6 / (pixels * std::max(t.iters, 1)));
                 std::fflush(stdout);

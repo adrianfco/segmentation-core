@@ -1,5 +1,7 @@
 #include "kmeans.hpp"
 
+#include "parallel.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -13,6 +15,7 @@ namespace seg {
 namespace {
 
 using Centroid = std::array<double, 3>;
+using Sum      = std::array<long long, 3>;
 
 int nearest_centroid(const unsigned char* pixel, const std::vector<Centroid>& centroids) {
     double best = std::numeric_limits<double>::max();
@@ -50,7 +53,7 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
 
         std::vector<double> dist_sq(n_pixels);
         for (int ci = 1; ci < k; ++ci) {
-            double total = 0.0;
+            SEG_OMP(parallel for schedule(static))
             for (int p = 0; p < n_pixels; ++p) {
                 dist_sq[p] = std::numeric_limits<double>::max();
                 for (int prev = 0; prev < ci; ++prev) {
@@ -60,8 +63,11 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
                     double d  = dr * dr + dg * dg + db * db;
                     dist_sq[p] = std::min(dist_sq[p], d);
                 }
-                total += dist_sq[p];
             }
+            // summed serially so the picked centroid does not depend on threads
+            double total = 0.0;
+            for (int p = 0; p < n_pixels; ++p) total += dist_sq[p];
+
             std::uniform_real_distribution<double> wheel(0.0, total);
             double r = wheel(rng);
             double acc = 0.0;
@@ -74,15 +80,16 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
         }
     }
 
-    std::vector<int>     labels(n_pixels);
-    std::vector<Centroid> sums(k);
-    std::vector<int>     counts(k);
+    std::vector<int>  labels(n_pixels);
+    std::vector<Sum>  sums(k);
+    std::vector<int>  counts(k);
 
     int iters = 0;
     for (; iters < max_iters; ++iters) {
         bool changed = false;
 
         // Assignment
+        SEG_OMP(parallel for schedule(static) reduction(||:changed))
         for (int p = 0; p < n_pixels; ++p) {
             int lbl = nearest_centroid(&img.data[p * 3], centroids);
             if (lbl != labels[p]) { labels[p] = lbl; changed = true; }
@@ -90,26 +97,43 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
 
         if (!changed && iters > 0) break;
 
-        // Update
-        for (auto& s : sums)   s.fill(0.0);
+        // Update. The sums are integers, so merging the per-thread partials is
+        // exact whatever order they arrive in.
+        for (auto& s : sums) s.fill(0);
         std::fill(counts.begin(), counts.end(), 0);
-        for (int p = 0; p < n_pixels; ++p) {
-            int lbl = labels[p];
-            sums[lbl][0] += img.data[p * 3 + 0];
-            sums[lbl][1] += img.data[p * 3 + 1];
-            sums[lbl][2] += img.data[p * 3 + 2];
-            counts[lbl]++;
+
+        SEG_OMP(parallel)
+        {
+            std::vector<Sum> local_sums(k);
+            std::vector<int> local_counts(k);
+
+            SEG_OMP(for schedule(static) nowait)
+            for (int p = 0; p < n_pixels; ++p) {
+                int lbl = labels[p];
+                local_sums[lbl][0] += img.data[p * 3 + 0];
+                local_sums[lbl][1] += img.data[p * 3 + 1];
+                local_sums[lbl][2] += img.data[p * 3 + 2];
+                local_counts[lbl]++;
+            }
+
+            SEG_OMP(critical)
+            for (int i = 0; i < k; ++i) {
+                for (int c = 0; c < 3; ++c) sums[i][c] += local_sums[i][c];
+                counts[i] += local_counts[i];
+            }
         }
+
         for (int i = 0; i < k; ++i) {
             if (counts[i] > 0) {
-                centroids[i][0] = sums[i][0] / counts[i];
-                centroids[i][1] = sums[i][1] / counts[i];
-                centroids[i][2] = sums[i][2] / counts[i];
+                for (int c = 0; c < 3; ++c) {
+                    centroids[i][c] = static_cast<double>(sums[i][c]) / counts[i];
+                }
             }
         }
     }
 
     // Replace each pixel with its centroid color
+    SEG_OMP(parallel for schedule(static))
     for (int p = 0; p < n_pixels; ++p) {
         const auto& c = centroids[labels[p]];
         img.data[p * 3 + 0] = static_cast<unsigned char>(std::clamp(c[0], 0.0, 255.0));
