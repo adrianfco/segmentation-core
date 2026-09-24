@@ -94,11 +94,18 @@ pytest tests/test_python_bindings.py
 (1, 4 and 16 MP; k = 4, 8, 16), without disk I/O, and reports the median time
 and ns per pixel per iteration.
 
+Single-threaded runs also read hardware counters over the same region as the
+timer, and report cycles and instructions per pixel per iteration, IPC, and L1D
+read misses and branch misses per 1000 instructions. Those columns need
+`kernel.perf_event_paranoid` at 2 or lower and come out empty otherwise.
+
 ```bash
 ./build/bench_segmentation > results.csv             # full grid, ~23 min on one core
 ./build/bench_segmentation --algo pfcm --mp 1 --k 8  # one config, to the terminal
 ./build/bench_segmentation --threads 4               # pin the run to 4 threads
 ```
 
-Rows go to stdout as CSV, progress to stderr them on screen. The heaviest config (PFCM, 16 MP, k=16) takes ~12 min and ~4 GB.
+Rows go to stdout as CSV and progress to stderr, so redirecting the rows to a
+file still shows progress on screen. The heaviest config (PFCM, 16 MP, k=16)
+takes ~12 min and ~4 GB.
 Baseline numbers are in [`bench/results/`](bench/results/).

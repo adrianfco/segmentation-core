@@ -1,3 +1,5 @@
+#include "counters.hpp"
+
 #include "image_io.hpp"
 #include "kmeans.hpp"
 #include "pfcm.hpp"
@@ -19,7 +21,8 @@
 
 // Times kmeans_segment / pfcm_segment on in-memory synthetic images and writes
 // one CSV row per config to stdout. Image I/O is excluded so the numbers
-// reflect the algorithms only.
+// reflect the algorithms only. Single-threaded runs also carry hardware
+// counters, read over the same region as the stopwatch.
 //
 //   ./bench_segmentation > baseline.csv
 //   ./bench_segmentation --algo pfcm --mp 16 | column -t -s,
@@ -49,10 +52,11 @@ int thread_count() {
 }
 
 struct Timing {
-    int    iters;
-    int    reps;
-    double median_ms;
-    double min_ms;
+    int                  iters;
+    int                  reps;
+    double               median_ms;
+    double               min_ms;
+    bench::CounterValues counters;
 };
 
 [[noreturn]] void usage(const char* prog) {
@@ -128,41 +132,72 @@ seg::Image make_image(int width, int height, int seed) {
     return img;
 }
 
-double run_once(const std::string& algo, const seg::Image& src, int k, int& iters) {
+double run_once(const std::string& algo, const seg::Image& src, int k, int& iters,
+                bench::Counters* counters, bench::CounterValues* out) {
     seg::Image img = src; // the algorithms work in place
 
+    if (counters) counters->start();
     auto t0 = std::chrono::steady_clock::now();
     if (algo == "kmeans") iters = seg::kmeans_segment(img, k, kSeed, kIters);
     else                  iters = seg::pfcm_segment(img, k, kSeed, kIters);
     auto t1 = std::chrono::steady_clock::now();
+    if (counters) {
+        counters->stop();
+        *out = counters->read();
+    }
 
     return std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
-Timing measure(const std::string& algo, const seg::Image& src, int k) {
-    std::vector<double> times;
+Timing measure(const std::string& algo, const seg::Image& src, int k, bench::Counters* counters) {
+    struct Rep {
+        double               ms;
+        bench::CounterValues counters;
+    };
+
+    std::vector<Rep> reps;
     int    iters = 0;
     double spent = 0.0;
-    while (static_cast<int>(times.size()) < kMaxReps && (times.empty() || spent < kBudgetMs)) {
-        double ms = run_once(algo, src, k, iters);
-        times.push_back(ms);
-        spent += ms;
+    while (static_cast<int>(reps.size()) < kMaxReps && (reps.empty() || spent < kBudgetMs)) {
+        Rep rep;
+        rep.ms = run_once(algo, src, k, iters, counters, &rep.counters);
+        reps.push_back(rep);
+        spent += rep.ms;
     }
 
-    std::sort(times.begin(), times.end());
-    size_t n = times.size();
+    std::sort(reps.begin(), reps.end(), [](const Rep& a, const Rep& b) { return a.ms < b.ms; });
+    size_t n = reps.size();
     return {iters, static_cast<int>(n),
-            (n % 2) ? times[n / 2] : (times[n / 2 - 1] + times[n / 2]) / 2.0,
-            times.front()};
+            (n % 2) ? reps[n / 2].ms : (reps[n / 2 - 1].ms + reps[n / 2].ms) / 2.0,
+            reps.front().ms,
+            reps[n / 2].counters}; // the rep nearest the reported median
 }
 
 void warm_up() {
     seg::Image src = make_image(512, 512, kSeed);
     auto start = std::chrono::steady_clock::now();
     int  iters = 0;
+    bench::CounterValues ignored;
     while (std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
-        run_once("kmeans", src, 8, iters);
+        run_once("kmeans", src, 8, iters, nullptr, &ignored);
     }
+}
+
+// Counter columns, or the same number of empty fields when the PMU gave us
+// nothing. Cache and branch misses are per 1000 instructions, the usual unit.
+void print_counters(const bench::CounterValues& c, double pixels, int iters) {
+    if (!c.valid || c.cycles == 0 || c.instructions == 0) {
+        std::printf(",,,,,");
+        return;
+    }
+    const double work  = pixels * std::max(iters, 1);
+    const double kilo  = c.instructions / 1000.0;
+    std::printf(",%.1f,%.1f,%.3f,%.2f,%.3f",
+                c.cycles / work,
+                c.instructions / work,
+                static_cast<double>(c.instructions) / c.cycles,
+                c.l1d_read_misses / kilo,
+                c.branch_misses / kilo);
 }
 
 } // anonymous namespace
@@ -175,8 +210,22 @@ int main(int argc, char** argv) {
 #endif
     const int threads = thread_count();
 
+    // The counters are per thread, so they only describe a single-threaded run
+    bench::Counters counters;
+    bench::Counters* active = (threads == 1 && counters.available()) ? &counters : nullptr;
+    if (!counters.available()) {
+        std::fprintf(stderr,
+                     "hardware counters unavailable, leaving those columns empty "
+                     "(needs kernel.perf_event_paranoid <= 2)\n");
+    } else if (threads != 1) {
+        std::fprintf(stderr,
+                     "hardware counters are read on the calling thread only, "
+                     "so they are collected for --threads 1 runs\n");
+    }
+
     warm_up();
-    std::printf("algo,threads,mp,width,height,k,iters,reps,median_ms,min_ms,ns_per_px_iter\n");
+    std::printf("algo,threads,mp,width,height,k,iters,reps,median_ms,min_ms,ns_per_px_iter,"
+                "cycles_per_px_iter,instr_per_px_iter,ipc,l1d_mpki,branch_mpki\n");
 
     for (int mp : opt.mps) {
         int side = side_for_mp(mp);
@@ -186,13 +235,15 @@ int main(int argc, char** argv) {
         for (const auto& algo : opt.algos) {
             for (int k : opt.ks) {
                 std::fprintf(stderr, "%s %d MP k=%d %d thread(s) ...", algo.c_str(), mp, k, threads);
-                Timing t = measure(algo, src, k);
+                Timing t = measure(algo, src, k, active);
                 std::fprintf(stderr, " %.1f ms\n", t.median_ms);
 
-                std::printf("%s,%d,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.2f\n",
+                std::printf("%s,%d,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.2f",
                             algo.c_str(), threads, mp, side, side, k, t.iters, t.reps,
                             t.median_ms, t.min_ms,
                             t.median_ms * 1e6 / (pixels * std::max(t.iters, 1)));
+                print_counters(t.counters, pixels, t.iters);
+                std::printf("\n");
                 std::fflush(stdout);
             }
         }
