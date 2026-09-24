@@ -1,5 +1,6 @@
 #include "kmeans.hpp"
 
+#include "centroids.hpp"
 #include "parallel.hpp"
 
 #include <algorithm>
@@ -14,17 +15,16 @@ namespace seg {
 
 namespace {
 
-using Centroid = std::array<double, 3>;
-using Sum      = std::array<long long, 3>;
+using detail::Centroid;
+using detail::sq_dist;
+
+using Sum = std::array<long long, 3>;
 
 int nearest_centroid(const unsigned char* pixel, const std::vector<Centroid>& centroids) {
     double best = std::numeric_limits<double>::max();
     int    idx  = 0;
     for (int i = 0; i < static_cast<int>(centroids.size()); ++i) {
-        double dr = pixel[0] - centroids[i][0];
-        double dg = pixel[1] - centroids[i][1];
-        double db = pixel[2] - centroids[i][2];
-        double d  = dr * dr + dg * dg + db * db;
+        double d = sq_dist(pixel, centroids[i]);
         if (d < best) {
             best = d;
             idx  = i;
@@ -42,43 +42,8 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
     const int n_pixels = img.width * img.height;
     if (n_pixels == 0) throw std::runtime_error("Image has no pixels");
 
-    // KMeans++ init
     std::mt19937 rng(static_cast<unsigned>(seed));
-
-    std::vector<Centroid> centroids(k);
-    {
-        std::uniform_int_distribution<int> pick(0, n_pixels - 1);
-        int first = pick(rng);
-        for (int c = 0; c < 3; ++c) centroids[0][c] = img.data[first * 3 + c];
-
-        std::vector<double> dist_sq(n_pixels);
-        for (int ci = 1; ci < k; ++ci) {
-            SEG_OMP(parallel for schedule(static))
-            for (int p = 0; p < n_pixels; ++p) {
-                dist_sq[p] = std::numeric_limits<double>::max();
-                for (int prev = 0; prev < ci; ++prev) {
-                    double dr = img.data[p * 3 + 0] - centroids[prev][0];
-                    double dg = img.data[p * 3 + 1] - centroids[prev][1];
-                    double db = img.data[p * 3 + 2] - centroids[prev][2];
-                    double d  = dr * dr + dg * dg + db * db;
-                    dist_sq[p] = std::min(dist_sq[p], d);
-                }
-            }
-            // summed serially so the picked centroid does not depend on threads
-            double total = 0.0;
-            for (int p = 0; p < n_pixels; ++p) total += dist_sq[p];
-
-            std::uniform_real_distribution<double> wheel(0.0, total);
-            double r = wheel(rng);
-            double acc = 0.0;
-            int chosen = n_pixels - 1;
-            for (int p = 0; p < n_pixels; ++p) {
-                acc += dist_sq[p];
-                if (acc >= r) { chosen = p; break; }
-            }
-            for (int c = 0; c < 3; ++c) centroids[ci][c] = img.data[chosen * 3 + c];
-        }
-    }
+    std::vector<Centroid> centroids = detail::kmeans_plus_plus(img, k, rng);
 
     std::vector<int>  labels(n_pixels);
     std::vector<Sum>  sums(k);

@@ -2,10 +2,10 @@
 
 #include <cstdint>
 
-// Hardware counters read straight from the PMU around the timed region, so they
-// describe the same work the stopwatch sees. Linux only, and everything falls
-// back to "unavailable" when the kernel refuses the events: that is the case in
-// CI, and on any machine where kernel.perf_event_paranoid is above 2.
+// Hardware counters read around the timed region, so they cover the same work
+// as the timer. Linux only, and everything falls back to "unavailable" when the
+// kernel refuses the events: that is the case in CI, and on any machine where
+// kernel.perf_event_paranoid is above 2.
 //
 // The counters are opened on the calling thread. OpenMP workers already exist
 // when the region starts, so they are not inherited and multi-threaded runs
@@ -83,8 +83,8 @@ public:
         // then one value per event in the order they were opened.
         std::uint64_t buf[3 + kCount] = {};
         if (::read(fds_[0], buf, sizeof(buf)) != static_cast<ssize_t>(sizeof(buf))) return v;
-        // time_enabled != time_running means the group was multiplexed and the
-        // counts are scaled estimates, which are not worth publishing
+        // time_enabled != time_running means the group was multiplexed, so the
+        // counts are scaled estimates rather than exact
         if (buf[0] != kCount || buf[1] != buf[2]) return v;
 
         v.valid           = true;

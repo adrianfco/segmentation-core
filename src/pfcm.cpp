@@ -1,11 +1,10 @@
 #include "pfcm.hpp"
 
+#include "centroids.hpp"
 #include "parallel.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <limits>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -19,14 +18,8 @@ namespace seg {
 
 namespace {
 
-using Centroid = std::array<double, 3>;
-
-double sq_dist(const unsigned char* px, const Centroid& c) {
-    double dr = px[0] - c[0];
-    double dg = px[1] - c[1];
-    double db = px[2] - c[2];
-    return dr * dr + dg * dg + db * db;
-}
+using detail::Centroid;
+using detail::sq_dist;
 
 } // anonymous namespace
 
@@ -39,37 +32,8 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     const int n = img.width * img.height;
     if (n == 0) throw std::runtime_error("Image has no pixels");
 
-    // KMeans++ init, same as kmeans.cpp
     std::mt19937 rng(static_cast<unsigned>(seed));
-    std::vector<Centroid> centers(k);
-    {
-        std::uniform_int_distribution<int> pick(0, n - 1);
-        int first = pick(rng);
-        for (int c = 0; c < 3; ++c) centers[0][c] = img.data[first * 3 + c];
-
-        std::vector<double> dist_sq(n);
-        for (int ci = 1; ci < k; ++ci) {
-            SEG_OMP(parallel for schedule(static))
-            for (int p = 0; p < n; ++p) {
-                dist_sq[p] = std::numeric_limits<double>::max();
-                for (int prev = 0; prev < ci; ++prev) {
-                    dist_sq[p] = std::min(dist_sq[p], sq_dist(&img.data[p * 3], centers[prev]));
-                }
-            }
-            // summed serially so the picked centroid does not depend on threads
-            double total = 0.0;
-            for (int p = 0; p < n; ++p) total += dist_sq[p];
-
-            std::uniform_real_distribution<double> wheel(0.0, total);
-            double r = wheel(rng), acc = 0.0;
-            int chosen = n - 1;
-            for (int p = 0; p < n; ++p) {
-                acc += dist_sq[p];
-                if (acc >= r) { chosen = p; break; }
-            }
-            for (int c = 0; c < 3; ++c) centers[ci][c] = img.data[chosen * 3 + c];
-        }
-    }
+    std::vector<Centroid> centers = detail::kmeans_plus_plus(img, k, rng);
 
     const double exp_u = 1.0 / (m   - 1.0);
     const double exp_t = 1.0 / (eta - 1.0);

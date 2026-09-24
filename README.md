@@ -108,4 +108,6 @@ read misses and branch misses per 1000 instructions. Those columns need
 Rows go to stdout as CSV and progress to stderr, so redirecting the rows to a
 file still shows progress on screen. The heaviest config (PFCM, 16 MP, k=16)
 takes ~12 min and ~4 GB.
-Baseline numbers are in [`bench/results/`](bench/results/).
+Raw numbers are in [`bench/results/`](bench/results/), with the analysis in
+[BENCHMARKS.md](BENCHMARKS.md): 3.3x on 6 cores, and 41% fewer instructions per
+pixel after the KMeans++ seeding fix.
