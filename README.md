@@ -109,5 +109,6 @@ Rows go to stdout as CSV and progress to stderr, so redirecting the rows to a
 file still shows progress on screen. The heaviest config (PFCM, 16 MP, k=16)
 takes ~12 min and ~4 GB.
 Raw numbers are in [`bench/results/`](bench/results/), with the analysis in
-[BENCHMARKS.md](BENCHMARKS.md): 3.3x on 6 cores, and 41% fewer instructions per
-pixel after the KMeans++ seeding fix.
+[BENCHMARKS.md](BENCHMARKS.md): 3.3x on 6 cores, 19x on PFCM at k=16 after
+taking `std::pow` out of its inner loops, and 41% fewer instructions per pixel
+from the KMeans++ seeding fix.

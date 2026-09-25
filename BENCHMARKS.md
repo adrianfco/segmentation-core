@@ -8,7 +8,8 @@ runs also read hardware counters over that same region. CSVs in
 
 ## Thread scaling
 
-16 MP, k=16, on 6 physical cores (`scaling.csv`):
+16 MP, k=16, on 6 physical cores, measured at the OpenMP commit and not redone
+since (`scaling.csv`):
 
 | threads | KMeans ns/px/iter | speedup | PFCM ns/px/iter | speedup |
 |--------:|------------------:|--------:|----------------:|--------:|
@@ -55,19 +56,39 @@ iterations, gets back to the old numbers within 1%:
 `l1d_mpki` goes from 1.21 to 2.05 at k=16: the same memory traffic over 41%
 fewer instructions.
 
-## Where PFCM spends its time
+## PFCM and std::pow
 
-`std::pow` is called `n·k(k+4)` times per iteration, `k²` of that in the
-membership update. At 1 MP:
+`std::pow` was called `n·k(k+4)` times per iteration, `k²` of that in the
+membership update. `m` and `eta` are runtime arguments, so none of it folded
+away at compile time, and at k=16 it accounted for practically the whole
+instruction count: 320 calls per pixel per iteration against 52376
+instructions, about 164 each.
 
-| k  | instr/px/iter | pow calls/px/iter | instr per pow | IPC  | l1d_mpki |
-|---:|--------------:|------------------:|--------------:|-----:|---------:|
-| 4  | 5526          | 32                | 173           | 2.94 | 0.63     |
-| 8  | 16058         | 96                | 167           | 2.94 | 0.63     |
-| 16 | 52376         | 320               | 164           | 2.90 | 0.56     |
+Two things changed. At the default `m = eta = 2` every exponent is 1 or 2,
+which is a multiply. And `1 / sum_j (d_i/d_j)^e` factors into
+`d_i^-e / sum_j d_j^-e`, so the inner sum comes out of the i loop and the
+membership update drops from O(k²) to O(k).
 
-About 170 instructions per `pow` call across the grid. IPC near 3 with almost
-no L1 misses, so it is not stalling on memory.
+1 MP, before (`counters.csv`) and after (`pfcm_pow.csv`):
+
+| k  | instr/px/iter before | after | ns/px/iter before | after | speedup |
+|---:|---------------------:|------:|------------------:|------:|--------:|
+| 4  | 5526                 | 892   | 472.7             | 60.1  | 7.9     |
+| 8  | 16058                | 1655  | 1386.0            | 116.9 | 11.9    |
+| 16 | 52376                | 3183  | 4764.2            | 238.9 | 19.9    |
+
+What is left is linear in k at `129 + 191k`. Repeat runs of the same build
+drift by a few percent on timing; the instruction counts do not move.
+
+`l1d_mpki` goes from 0.56 to 4.76 at k=16. The u and t arrays are still n·k
+doubles each, so the traffic did not change while the instruction count fell
+16x. IPC goes up rather than down, 2.90 to 3.69, so it is not stalling on that
+traffic yet.
+
+Output is unchanged on everything tested, at the default exponents and at
+m and eta of 1.2 to 4.0, but the factored sum reassociates the arithmetic, so
+bit-identical results are not guaranteed the way they are for the seeding
+change.
 
 ## Counters
 

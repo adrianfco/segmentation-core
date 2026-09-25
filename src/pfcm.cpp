@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -20,6 +21,16 @@ namespace {
 
 using detail::Centroid;
 using detail::sq_dist;
+
+// m and eta arrive as runtime arguments, so std::pow cannot be folded into a
+// multiply the way it would be for a literal exponent. At the defaults
+// (m = eta = 2) every exponent below is 1 or 2, and the branch is on a value
+// that stays the same for the whole run.
+double fast_pow(double x, double e) {
+    if (e == 1.0) return x;
+    if (e == 2.0) return x * x;
+    return std::pow(x, e);
+}
 
 } // anonymous namespace
 
@@ -54,25 +65,33 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         SEG_OMP(parallel)
         {
             std::vector<double> dists(k);
+            std::vector<double> w(k);
 
             SEG_OMP(for schedule(static))
             for (int p = 0; p < n; ++p) {
                 const unsigned char* px = &img.data[p * 3];
-                for (int i = 0; i < k; ++i) dists[i] = sq_dist(px, centers[i]);
-
-                int on_center = -1;
+                int    nearest = 0;
+                double d_min   = std::numeric_limits<double>::max();
                 for (int i = 0; i < k; ++i) {
-                    if (dists[i] < 1e-10) { on_center = i; break; }
+                    dists[i] = sq_dist(px, centers[i]);
+                    if (dists[i] < d_min) { d_min = dists[i]; nearest = i; }
                 }
-                if (on_center >= 0) {
-                    for (int j = 0; j < k; ++j) u[p * k + j] = (on_center == j) ? 1.0 : 0.0;
+
+                if (d_min < 1e-10) {
+                    for (int j = 0; j < k; ++j) u[p * k + j] = (nearest == j) ? 1.0 : 0.0;
                     continue;
                 }
+
+                // u_i = 1 / sum_j (d_i/d_j)^e factors into d_i^-e / sum_j d_j^-e,
+                // so the inner sum leaves the i loop: k terms instead of k^2.
+                // Scaling by d_min keeps every term in (0, 1], with the nearest
+                // centroid contributing exactly 1, so the sum cannot underflow.
+                double sum = 0.0;
                 for (int i = 0; i < k; ++i) {
-                    double sum = 0.0;
-                    for (int j = 0; j < k; ++j) sum += std::pow(dists[i] / dists[j], exp_u);
-                    u[p * k + i] = (sum > 0) ? 1.0 / sum : 0.0;
+                    w[i] = fast_pow(d_min / dists[i], exp_u);
+                    sum += w[i];
                 }
+                for (int i = 0; i < k; ++i) u[p * k + i] = w[i] / sum;
             }
         }
     };
@@ -86,7 +105,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
             double* acc = &partials[static_cast<size_t>(c) * gamma_stride];
             for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
                 for (int i = 0; i < k; ++i) {
-                    double um = std::pow(u[p * k + i], m);
+                    double um = fast_pow(u[p * k + i], m);
                     acc[i * 2 + 0] += um * sq_dist(&img.data[p * 3], centers[i]);
                     acc[i * 2 + 1] += um;
                 }
@@ -107,12 +126,16 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
             if (gamma[i] < 1e-10) gamma[i] = 1e-10;
         }
 
+        // one reciprocal per cluster instead of a divide per pixel and cluster
+        std::vector<double> inv_gamma(k);
+        for (int i = 0; i < k; ++i) inv_gamma[i] = 1.0 / gamma[i];
+
         SEG_OMP(parallel for schedule(static))
         for (int p = 0; p < n; ++p) {
             const unsigned char* px = &img.data[p * 3];
             for (int i = 0; i < k; ++i) {
                 double d = sq_dist(px, centers[i]);
-                t[p * k + i] = 1.0 / (1.0 + std::pow(d / gamma[i], exp_t));
+                t[p * k + i] = 1.0 / (1.0 + fast_pow(d * inv_gamma[i], exp_t));
             }
         }
     };
@@ -134,7 +157,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
             for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
                 const unsigned char* px = &img.data[p * 3];
                 for (int i = 0; i < k; ++i) {
-                    double w = std::pow(u[p * k + i], m) + a * std::pow(t[p * k + i], eta);
+                    double w = fast_pow(u[p * k + i], m) + a * fast_pow(t[p * k + i], eta);
                     acc[i * 4 + 0] += w * px[0];
                     acc[i * 4 + 1] += w * px[1];
                     acc[i * 4 + 2] += w * px[2];

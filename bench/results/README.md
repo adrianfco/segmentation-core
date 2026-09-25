@@ -10,3 +10,5 @@
 ```
 
 `kmeanspp.csv`: the same KMeans grid after the O(nk) seeding change, to compare against the KMeans rows of `counters.csv`.
+
+`pfcm_pow.csv`: the same PFCM grid after the `std::pow` rewrite, to compare against the PFCM rows of `counters.csv`.
