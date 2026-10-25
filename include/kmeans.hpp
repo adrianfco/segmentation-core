@@ -4,9 +4,7 @@
 
 namespace seg {
 
-// Runs KMeans color segmentation in-place on img.
-// Returns the number of iterations executed.
-// seed controls centroid initialization; result is reproducible for fixed seed.
+// Segments img in place and returns the iteration count.
 int kmeans_segment(Image& img, int k, int seed, int max_iters);
 
 } // namespace seg

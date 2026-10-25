@@ -31,7 +31,7 @@
 namespace {
 
 constexpr int    kSeed         = 42;
-constexpr int    kIters        = 10;      // max_iters passed to the algorithms
+constexpr int    kIters        = 10;
 constexpr int    kMaxReps      = 3;
 constexpr double kBudgetMs     = 10000.0; // stop repeating a config after this much time
 constexpr int    kTrueClusters = 8;
@@ -134,7 +134,7 @@ seg::Image make_image(int width, int height, int seed) {
 
 double run_once(const std::string& algo, const seg::Image& src, int k, int& iters,
                 bench::Counters* counters, bench::CounterValues* out) {
-    seg::Image img = src; // the algorithms work in place
+    seg::Image img = src;
 
     if (counters) counters->start();
     auto t0 = std::chrono::steady_clock::now();

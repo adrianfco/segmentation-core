@@ -4,10 +4,8 @@
 
 namespace seg {
 
-// Runs PFCM color segmentation in-place on img.
-// m:   fuzziness exponent (>1, typically 2.0)
-// eta: typicality exponent (>1, typically 2.0)
-// Returns the number of iterations executed.
+// Segments img in place and returns the iteration count. m is the fuzziness
+// exponent and eta the typicality exponent, both must be > 1.
 int pfcm_segment(Image& img, int k, int seed, int max_iters,
                  double m = 2.0, double eta = 2.0);
 

@@ -12,20 +12,13 @@
 
 namespace seg {
 
-// PFCM combines fuzzy membership (u) and typicality (t) to update centroids:
-//   centroid_i = sum_j (u_ij^m + a*t_ij^eta) * x_j
-//              / sum_j (u_ij^m + a*t_ij^eta)
-// where a balances fuzzy vs typicality influence (here fixed to 1.0).
-
 namespace {
 
 using detail::Centroid;
 using detail::sq_dist;
 
-// m and eta arrive as runtime arguments, so std::pow cannot be folded into a
-// multiply the way it would be for a literal exponent. At the defaults
-// (m = eta = 2) every exponent below is 1 or 2, and the branch is on a value
-// that stays the same for the whole run.
+// m and eta are runtime values, so the compiler can't turn std::pow into a
+// multiply. At the defaults (2) every exponent below is 1 or 2.
 double fast_pow(double x, double e) {
     if (e == 1.0) return x;
     if (e == 2.0) return x * x;
@@ -58,9 +51,8 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     const int gamma_stride  = detail::partial_stride(2 * k);  // num, den per cluster
     const int center_stride = detail::partial_stride(4 * k);  // r, g, b, weight
 
-    // Compute u and t from the initial KMeans++ centroids before the first
-    // centroid update. Without this, u=1/k uniform weights collapse all
-    // centroids to the image mean on the very first iteration.
+    // u and t are computed before the first update, otherwise the uniform
+    // u = 1/k collapses every centroid to the image mean.
     auto update_u = [&]() {
         #pragma omp parallel
         {
@@ -82,10 +74,8 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
                     continue;
                 }
 
-                // u_i = 1 / sum_j (d_i/d_j)^e factors into d_i^-e / sum_j d_j^-e,
-                // so the inner sum leaves the i loop: k terms instead of k^2.
-                // Scaling by d_min keeps every term in (0, 1], with the nearest
-                // centroid contributing exactly 1, so the sum cannot underflow.
+                // u_i = d_i^-e / sum_j d_j^-e with d the squared distance and
+                // e = 1/(m-1). Scaled by d_min so the nearest term is 1.
                 double sum = 0.0;
                 for (int i = 0; i < k; ++i) {
                     w[i] = fast_pow(d_min / dists[i], exp_u);
@@ -97,7 +87,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     };
 
     auto update_gamma_and_t = [&]() {
-        // gamma_i = sum_p u_pi^m * d_pi^2 / sum_p u_pi^m  (Pal et al. 2005)
+        // gamma_i = sum_p u^m d / sum_p u^m
         std::vector<double> partials(static_cast<size_t>(n_chunks) * gamma_stride, 0.0);
 
         #pragma omp parallel for schedule(static)
@@ -149,6 +139,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         std::vector<double>   denom(k, 0.0);
         for (auto& c : new_centers) c.fill(0.0);
 
+        // centroid_i = sum_p w x_p / sum_p w, with w = u^m + a*t^eta
         std::vector<double> partials(static_cast<size_t>(n_chunks) * center_stride, 0.0);
 
         #pragma omp parallel for schedule(static)
@@ -192,7 +183,6 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         update_gamma_and_t();
     }
 
-    // Hard assignment: each pixel takes the color of its highest-membership cluster
     #pragma omp parallel for schedule(static)
     for (int p = 0; p < n; ++p) {
         int best = 0;

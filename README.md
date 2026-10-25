@@ -70,11 +70,10 @@ work directly on an in-memory `seg::Image` if you don't want file I/O.
 
 ## Parallelism
 
-The per-pixel loops of both algorithms are parallelized with OpenMP, and
-`OMP_NUM_THREADS` sets the thread count. Partial sums are accumulated in
-fixed-size pixel chunks and merged in chunk order, so the output is
-bit-identical whatever the thread count, and identical again to a serial build. 
-OpenMP is used when CMake finds it and skipped otherwise.
+The per-pixel loops of both algorithms use OpenMP, and `OMP_NUM_THREADS` sets
+the thread count. Output is bit-identical for any thread count and for a serial
+build, which is what you get with `-DSEG_ENABLE_OPENMP=OFF` or when CMake
+doesn't find OpenMP.
 
 ## Build and test
 
@@ -91,24 +90,16 @@ pytest tests/test_python_bindings.py
 ## Benchmarks
 
 `bench_segmentation` times both algorithms on synthetic in-memory images
-(1, 4 and 16 MP; k = 4, 8, 16), without disk I/O, and reports the median time
-and ns per pixel per iteration.
-
-Single-threaded runs also read hardware counters over the same region as the
-timer, and report cycles and instructions per pixel per iteration, IPC, and L1D
-read misses and branch misses per 1000 instructions. Those columns need
-`kernel.perf_event_paranoid` at 2 or lower and come out empty otherwise.
+(1, 4 and 16 MP; k = 4, 8, 16), without disk I/O. Single-threaded runs also
+report hardware counters when `kernel.perf_event_paranoid` is 2 or lower.
 
 ```bash
-./build/bench_segmentation > results.csv             # full grid, ~23 min on one core
+./build/bench_segmentation > results.csv             # full grid, ~1 min on 12 threads
 ./build/bench_segmentation --algo pfcm --mp 1 --k 8  # one config, to the terminal
-./build/bench_segmentation --threads 4               # pin the run to 4 threads
 ```
 
-Rows go to stdout as CSV and progress to stderr, so redirecting the rows to a
-file still shows progress on screen. The heaviest config (PFCM, 16 MP, k=16)
-takes ~12 min and ~4 GB.
-Raw numbers are in [`bench/results/`](bench/results/), with the analysis in
-[BENCHMARKS.md](BENCHMARKS.md): 3.3x on 6 cores, 19x on PFCM at k=16 after
-taking `std::pow` out of its inner loops, and 41% fewer instructions per pixel
-from the KMeans++ seeding fix.
+Rows go to stdout as CSV and progress to stderr. The heaviest config (PFCM,
+16 MP, k=16) needs ~4 GB and takes ~40 s on one thread.
+
+Raw numbers are in [`bench/results/`](bench/results/) and the analysis in
+[BENCHMARKS.md](BENCHMARKS.md).

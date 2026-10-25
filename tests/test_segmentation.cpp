@@ -25,18 +25,17 @@ static seg::Image make_test_image(int w = 16, int h = 16) {
     img.height   = h;
     img.channels = 3;
     img.data.resize(w * h * 3);
-    // Four-quadrant synthetic image with distinct colors
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             int p = (y * w + x) * 3;
             if (x < w / 2 && y < h / 2) {
-                img.data[p] = 255; img.data[p+1] = 0;   img.data[p+2] = 0;   // red
+                img.data[p] = 255; img.data[p+1] = 0;   img.data[p+2] = 0;
             } else if (x >= w / 2 && y < h / 2) {
-                img.data[p] = 0;   img.data[p+1] = 255; img.data[p+2] = 0;   // green
+                img.data[p] = 0;   img.data[p+1] = 255; img.data[p+2] = 0;
             } else if (x < w / 2 && y >= h / 2) {
-                img.data[p] = 0;   img.data[p+1] = 0;   img.data[p+2] = 255; // blue
+                img.data[p] = 0;   img.data[p+1] = 0;   img.data[p+2] = 255;
             } else {
-                img.data[p] = 255; img.data[p+1] = 255; img.data[p+2] = 0;   // yellow
+                img.data[p] = 255; img.data[p+1] = 255; img.data[p+2] = 0;
             }
         }
     }
@@ -44,7 +43,6 @@ static seg::Image make_test_image(int w = 16, int h = 16) {
 }
 
 static void test_params_validation() {
-    // Empty input path
     seg::SegmentationParams p;
     p.input_path  = "";
     p.output_path = "/tmp/out.png";
@@ -52,19 +50,16 @@ static void test_params_validation() {
     CHECK(!r.success);
     CHECK(!r.error_message.empty());
 
-    // Empty output path
     p.input_path  = "some_file.png";
     p.output_path = "";
     r = seg::segment_image(p);
     CHECK(!r.success);
 
-    // Invalid k
     p.output_path = "/tmp/out.png";
     p.k = 0;
     r = seg::segment_image(p);
     CHECK(!r.success);
 
-    // Nonexistent input file
     p.k          = 4;
     p.input_path = "/nonexistent/path/image.png";
     r = seg::segment_image(p);

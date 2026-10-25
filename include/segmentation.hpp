@@ -17,9 +17,8 @@ struct SegmentationParams {
     int         seed       = 42;
     int         max_iters  = 100;
 
-    // PFCM-specific
-    double pfcm_m   = 2.0;  // fuzziness exponent
-    double pfcm_eta = 2.0;  // typicality exponent
+    double pfcm_m   = 2.0;
+    double pfcm_eta = 2.0;
 };
 
 struct SegmentationResult {

@@ -20,11 +20,7 @@ inline double sq_dist(const unsigned char* px, const Centroid& c) {
     return dr * dr + dg * dg + db * db;
 }
 
-// KMeans++ seeding, shared by both algorithms: the first centroid is uniform,
-// every later one is drawn with probability proportional to the pixel's squared
-// distance to the closest centroid picked so far. dist_sq holds that closest
-// distance and survives between rounds, so a round only measures against the
-// centroid just added and seeding stays O(n*k).
+// Kmeans++ seeding: centroid initialization for Kmeans and PFCM
 inline std::vector<Centroid> kmeans_plus_plus(const Image& img, int k, std::mt19937& rng) {
     const int n = img.width * img.height;
 

@@ -53,7 +53,6 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
     for (; iters < max_iters; ++iters) {
         bool changed = false;
 
-        // Assignment
         #pragma omp parallel for schedule(static) reduction(||:changed)
         for (int p = 0; p < n_pixels; ++p) {
             int lbl = nearest_centroid(&img.data[p * 3], centroids);
@@ -97,7 +96,6 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
         }
     }
 
-    // Replace each pixel with its centroid color
     #pragma omp parallel for schedule(static)
     for (int p = 0; p < n_pixels; ++p) {
         const auto& c = centroids[labels[p]];
