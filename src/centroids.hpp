@@ -1,7 +1,6 @@
 #pragma once
 
 #include "image_io.hpp"
-#include "parallel.hpp"
 
 #include <algorithm>
 #include <array>

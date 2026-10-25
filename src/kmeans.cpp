@@ -1,7 +1,6 @@
 #include "kmeans.hpp"
 
 #include "centroids.hpp"
-#include "parallel.hpp"
 
 #include <algorithm>
 #include <array>

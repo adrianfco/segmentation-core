@@ -1,7 +1,6 @@
 #include "pfcm.hpp"
 
 #include "centroids.hpp"
-#include "parallel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,8 +16,23 @@ namespace {
 using detail::Centroid;
 using detail::sq_dist;
 
-// m and eta are runtime values, so the compiler can't turn std::pow into a
-// multiply. At the defaults (2) every exponent below is 1 or 2.
+// Float sums are computed on chunks to preserve deterministic output on parallelization
+constexpr int kChunkPixels = 65536;
+
+int chunk_count(int n_pixels) {
+    return (n_pixels + kChunkPixels - 1) / kChunkPixels;
+}
+
+int chunk_end(int chunk, int n_pixels) {
+    return std::min((chunk + 1) * kChunkPixels, n_pixels);
+}
+
+// Round up to a cache line (8 doubles) so neighbouring chunks don't false share
+int partial_stride(int values_per_chunk) {
+    return (values_per_chunk + 7) / 8 * 8;
+}
+
+// Fast path for default values
 double fast_pow(double x, double e) {
     if (e == 1.0) return x;
     if (e == 2.0) return x * x;
@@ -47,9 +61,9 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     std::vector<double> t(n * k);
     std::vector<double> gamma(k, 0.0);
 
-    const int n_chunks      = detail::chunk_count(n);
-    const int gamma_stride  = detail::partial_stride(2 * k);  // num, den per cluster
-    const int center_stride = detail::partial_stride(4 * k);  // r, g, b, weight
+    const int n_chunks      = chunk_count(n);
+    const int gamma_stride  = partial_stride(2 * k);  // num, den per cluster
+    const int center_stride = partial_stride(4 * k);  // r, g, b, weight
 
     // u and t are computed before the first update, otherwise the uniform
     // u = 1/k collapses every centroid to the image mean.
@@ -93,7 +107,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         #pragma omp parallel for schedule(static)
         for (int c = 0; c < n_chunks; ++c) {
             double* acc = &partials[static_cast<size_t>(c) * gamma_stride];
-            for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
+            for (int p = c * kChunkPixels; p < chunk_end(c, n); ++p) {
                 for (int i = 0; i < k; ++i) {
                     double um = fast_pow(u[p * k + i], m);
                     acc[i * 2 + 0] += um * sq_dist(&img.data[p * 3], centers[i]);
@@ -145,7 +159,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         #pragma omp parallel for schedule(static)
         for (int c = 0; c < n_chunks; ++c) {
             double* acc = &partials[static_cast<size_t>(c) * center_stride];
-            for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
+            for (int p = c * kChunkPixels; p < chunk_end(c, n); ++p) {
                 const unsigned char* px = &img.data[p * 3];
                 for (int i = 0; i < k; ++i) {
                     double w = fast_pow(u[p * k + i], m) + a * fast_pow(t[p * k + i], eta);

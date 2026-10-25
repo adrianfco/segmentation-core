@@ -25,7 +25,7 @@ on 12. Not chased down.
 
 Output is bit-identical at every thread count: float sums are accumulated in
 fixed 65536-pixel chunks and merged in chunk order, so the result does not
-depend on how OpenMP splits the loop (`src/parallel.hpp`).
+depend on how OpenMP splits the loop (`src/pfcm.cpp`).
 
 ## KMeans++ seeding, O(nk²) to O(nk)
 
