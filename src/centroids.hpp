@@ -19,7 +19,7 @@ inline double sq_dist(const unsigned char* px, const Centroid& c) {
     return dr * dr + dg * dg + db * db;
 }
 
-// Kmeans++ seeding: centroid initialization for Kmeans and PFCM
+// Kmeans++ seeding: centroid initialization
 inline std::vector<Centroid> kmeans_plus_plus(const Image& img, int k, std::mt19937& rng) {
     const int n = img.width * img.height;
 

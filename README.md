@@ -1,105 +1,69 @@
 # segmentation-core
 
-Color segmentation of images on the CPU, written in C++17 with Python bindings (pybind11).
-Two algorithms: KMeans with KMeans++ init, and PFCM (Possibilistic Fuzzy C-Means).
+A C++17 library that segments images by color, with Python bindings. Each pixel
+is assigned to one of `k` clusters and replaced by that cluster's color.
+Currently, two clustering algorithms are available: KMeans and PFCM (Possibilistic Fuzzy
+C-Means).
 
-`segment_image` loads an image, clusters its pixels by color, writes the result
-(each pixel replaced by its cluster's color) and returns runtime, iteration count
-and image size. Results are deterministic for a given seed.
+This library is the engine behind [segmentation-api](https://github.com/adrianfco/segmentation-api) distributed service.
 
-This is the engine behind [segmentation-api](https://github.com/adrianfco/segmentation-api).
+## Performance
 
-## Install
+- **OpenMP parallelization** of every per-pixel loop: **4.75x on 6 cores**.
+- **O(nk) KMeans++ seeding** (`src/centroids.hpp`): Fix naive kmeans++ implementation O(nk²) to 
+  standard formulation O(nk). **KMeans is 1.77× faster** at k=16, with identical output.
+- **Deterministic output**: floating-point sums are accumulated in fixed
+  pixel chunks and merged in order, so the result is bit-identical for
+  any thread count.
+- **GIL released during the call** (`src/bindings.cpp`): `segment_image` drops the GIL and Python threads
+  can segment images in parallel.
 
-Prebuilt wheels for Linux x86_64 (CPython 3.10 to 3.13) are attached to each
-[release](https://github.com/adrianfco/segmentation-core/releases):
+Measurements and hardware-counter results are in [BENCHMARKS.md](BENCHMARKS.md).
 
-```bash
-pip install ./segmentation_core-<version>-<tags>.whl
-```
-
-From source (needs CMake >= 3.15, a C++17 compiler and Python headers;
-stb and pybind11 are fetched by CMake):
+## Usage
 
 ```bash
 pip install git+https://github.com/adrianfco/segmentation-core.git
 ```
 
-## Python
-
 ```python
 from segmentation_core import segment_image
 
 r = segment_image(
-    image_path="input.png",
-    output_path="output.png",  # .png, .jpg or .bmp
-    algorithm="kmeans",        # or "pfcm"
+    image_path="photo.jpg",
+    output_path="segmented.png",  # .png, .jpg or .bmp
+    algorithm="kmeans",           # or "pfcm"
     k=4,
     seed=42,
     max_iters=100,
-    pfcm_m=2.0,                # PFCM only: fuzziness exponent, > 1
-    pfcm_eta=2.0,              # PFCM only: typicality exponent, > 1
+    pfcm_m=2.0,                   # PFCM only, > 1
+    pfcm_eta=2.0,                 # PFCM only, > 1
 )
 
-if not r.success:
+if r.success:
+    print(f"{r.algorithm}: {r.width}x{r.height}, {r.iterations} iterations, {r.runtime_ms:.0f} ms")
+else:
     print(r.error_message)
-print(r.runtime_ms, r.iterations, r.width, r.height)
 ```
-
-Bad inputs (missing file, `k < 1`, unwritable output) come back as
-`success=False` with `error_message` set. An unknown `algorithm` raises `ValueError`.
-
-`segment_image` releases the GIL while it runs.
-
-## C++
-
-```cpp
-#include "segmentation.hpp"
-
-seg::SegmentationParams p;
-p.input_path  = "input.png";
-p.output_path = "output.png";
-p.algorithm   = seg::Algorithm::PFCM;
-p.k           = 4;
-
-seg::SegmentationResult r = seg::segment_image(p);
-```
-
-`kmeans_segment` and `pfcm_segment` (`include/kmeans.hpp`, `include/pfcm.hpp`)
-work directly on an in-memory `seg::Image` if you don't want file I/O.
-
-## Parallelism
-
-The per-pixel loops of both algorithms use OpenMP, and `OMP_NUM_THREADS` sets
-the thread count. Output is bit-identical for any thread count and for a serial
-build, which is what you get with `-DSEG_ENABLE_OPENMP=OFF` or when CMake
-doesn't find OpenMP.
 
 ## Build and test
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-./build/test_segmentation
+Needs a C++17 compiler, CMake 3.20+, Python 3.10+ with headers, git, and pytest.
 
-pip install . pytest
-python tests/make_fixture.py
-pytest tests/test_python_bindings.py
+```bash
+cmake -B build          # set up the build/ folder
+cmake --build build     # compile the targets
+ctest --test-dir build  # run the C++ and Python tests
 ```
 
 ## Benchmarks
 
-`bench_segmentation` times both algorithms on synthetic in-memory images
-(1, 4 and 16 MP; k = 4, 8, 16), without disk I/O. Single-threaded runs also
-report hardware counters when `kernel.perf_event_paranoid` is 2 or lower.
-
 ```bash
-./build/bench_segmentation > results.csv             # full grid, ~1 min on 12 threads
-./build/bench_segmentation --algo pfcm --mp 1 --k 8  # one config, to the terminal
+./build/bench_segmentation > results.csv             # 1, 4 and 16 MP images, k = 4, 8, 16
+./build/bench_segmentation --algo pfcm --mp 1 --k 8   # one config, to the terminal
 ```
 
-Rows go to stdout as CSV and progress to stderr. The heaviest config (PFCM,
-16 MP, k=16) needs ~4 GB and takes ~40 s on one thread.
-
-Raw numbers are in [`bench/results/`](bench/results/) and the analysis in
-[BENCHMARKS.md](BENCHMARKS.md).
+The full grid takes about a minute on 12 threads, and
+needs ~4 GB of memory. Hardware counters need
+`sudo sysctl kernel.perf_event_paranoid=2` on distributions that default to a
+stricter level. Results and analysis are in [BENCHMARKS.md](BENCHMARKS.md).
