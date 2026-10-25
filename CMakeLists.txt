@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.15)
-project(segmentation_core VERSION 0.2.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.20)
+project(segmentation_core LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,11 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-if(MSVC)
-  add_compile_options(/W4)
-else()
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
+add_compile_options(-Wall -Wextra -Wpedantic)
 
 # no system packages needed, both deps are fetched at configure time
 include(FetchContent)
@@ -32,7 +28,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-# engine is a static lib so the python module and the C++ tests share it
+# engine is a static lib so the python module, the C++ tests and the benchmark share it
 add_library(segmentation_lib STATIC
   src/image_io.cpp
   src/kmeans.cpp
@@ -40,10 +36,9 @@ add_library(segmentation_lib STATIC
   src/segmentation.cpp
 )
 
-target_include_directories(segmentation_lib PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${stb_SOURCE_DIR}
-)
+target_include_directories(segmentation_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# SYSTEM hides the warnings stb's headers trigger
+target_include_directories(segmentation_lib SYSTEM PRIVATE ${stb_SOURCE_DIR})
 
 # needed to link the static lib into the python .so
 set_target_properties(segmentation_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -52,43 +47,31 @@ option(SEG_ENABLE_OPENMP "Parallelize the segmentation loops with OpenMP" ON)
 
 if(SEG_ENABLE_OPENMP)
   find_package(OpenMP)
-  if(OpenMP_CXX_FOUND)
-    target_link_libraries(segmentation_lib PUBLIC OpenMP::OpenMP_CXX)
-  else()
-    message(STATUS "OpenMP not found, the segmentation loops will run serially")
-  endif()
 endif()
 
-# the #pragma omp lines are ignored without OpenMP, don't warn about them
-if(NOT TARGET OpenMP::OpenMP_CXX)
-  if(MSVC)
-    target_compile_options(segmentation_lib PRIVATE /wd4068)
-  else()
-    target_compile_options(segmentation_lib PRIVATE -Wno-unknown-pragmas)
-  endif()
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(segmentation_lib PUBLIC OpenMP::OpenMP_CXX)
+else()
+  message(STATUS "Building without OpenMP, the segmentation loops will run serially")
+  # the #pragma omp lines are ignored without OpenMP, don't warn about them
+  target_compile_options(segmentation_lib PRIVATE -Wno-unknown-pragmas)
 endif()
 
-pybind11_add_module(segmentation_core
-  src/bindings.cpp
-)
-
+pybind11_add_module(segmentation_core src/bindings.cpp)
 target_link_libraries(segmentation_core PRIVATE segmentation_lib)
-
-enable_testing()
-
-add_executable(test_segmentation
-  tests/test_segmentation.cpp
-)
-
-target_link_libraries(test_segmentation PRIVATE segmentation_lib)
-
-add_test(NAME cpp_tests COMMAND test_segmentation)
-
-add_executable(bench_segmentation
-  bench/bench_segmentation.cpp
-)
-
-target_link_libraries(bench_segmentation PRIVATE segmentation_lib)
 
 # top level of the wheel, so `import segmentation_core` works
 install(TARGETS segmentation_core LIBRARY DESTINATION .)
+
+add_executable(test_segmentation tests/test_segmentation.cpp)
+target_link_libraries(test_segmentation PRIVATE segmentation_lib)
+
+enable_testing()
+add_test(NAME cpp_tests COMMAND test_segmentation)
+# runs against the module in the build dir, not an installed copy
+add_test(NAME python_tests COMMAND ${PYTHON_EXECUTABLE} -m pytest ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+set_tests_properties(python_tests PROPERTIES
+  ENVIRONMENT PYTHONPATH=$<TARGET_FILE_DIR:segmentation_core>)
+
+add_executable(bench_segmentation bench/bench_segmentation.cpp)
+target_link_libraries(bench_segmentation PRIVATE segmentation_lib)

@@ -1,43 +1,27 @@
 name: CI
 
-on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: ["**"]
+on: [push, pull_request]
 
 jobs:
-  build-and-test:
-    name: Build and test (Ubuntu)
+  test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y python3-dev python3-pytest
+          pip install pytest
+          cmake -B build
+          cmake --build build
 
-      - name: Install Python build tools
-        run: pip3 install scikit-build-core --break-system-packages -q
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
 
-      - name: Build and install Python package
-        run: pip3 install . --break-system-packages -q
-
-      - name: Build C++ tests
+      - name: Package
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel --target test_segmentation
-
-      - name: Run C++ tests
-        run: ./build/test_segmentation
-
-      - name: Python smoke import
-        run: python3 -c "from segmentation_core import segment_image; print('import ok')"
-
-      - name: Generate test fixtures
-        run: python3 tests/make_fixture.py
-
-      - name: Run Python tests
-        run: python3 -m pytest tests/test_python_bindings.py -v
+          pip install .
+          python -c "import segmentation_core"
