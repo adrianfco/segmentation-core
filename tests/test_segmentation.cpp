@@ -49,30 +49,6 @@ static seg::Image make_test_image(int w = 16, int h = 16) {
     return img;
 }
 
-static seg::Image make_noisy_image(int w, int h) {
-    static const unsigned char base[4][3] = {
-        {200, 30, 30}, {30, 200, 30}, {30, 30, 200}, {200, 200, 40}};
-
-    seg::Image img;
-    img.width    = w;
-    img.height   = h;
-    img.channels = 3;
-    img.data.resize(w * h * 3);
-
-    std::mt19937 rng(7);
-    std::uniform_int_distribution<int> noise(-25, 25);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const unsigned char* c = base[(x / 100 + y / 100) % 4];
-            int p = (y * w + x) * 3;
-            for (int i = 0; i < 3; ++i) {
-                img.data[p + i] = static_cast<unsigned char>(std::clamp(c[i] + noise(rng), 0, 255));
-            }
-        }
-    }
-    return img;
-}
-
 static void test_params_validation() {
     seg::SegmentationParams p;
     p.input_path  = "";
@@ -129,6 +105,30 @@ static void test_pfcm_reproducible() {
 }
 
 #ifdef _OPENMP
+static seg::Image make_noisy_image(int w, int h) {
+    static const unsigned char base[4][3] = {
+        {200, 30, 30}, {30, 200, 30}, {30, 30, 200}, {200, 200, 40}};
+
+    seg::Image img;
+    img.width    = w;
+    img.height   = h;
+    img.channels = 3;
+    img.data.resize(w * h * 3);
+
+    std::mt19937 rng(7);
+    std::uniform_int_distribution<int> noise(-25, 25);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const unsigned char* c = base[(x / 100 + y / 100) % 4];
+            int p = (y * w + x) * 3;
+            for (int i = 0; i < 3; ++i) {
+                img.data[p + i] = static_cast<unsigned char>(std::clamp(c[i] + noise(rng), 0, 255));
+            }
+        }
+    }
+    return img;
+}
+
 // 400x400 spans three 65536-pixel chunks, so the chunk merge is exercised
 static void test_thread_count_does_not_change_output() {
     const seg::Image src = make_noisy_image(400, 400);
