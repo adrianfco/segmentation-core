@@ -62,12 +62,12 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     // centroid update. Without this, u=1/k uniform weights collapse all
     // centroids to the image mean on the very first iteration.
     auto update_u = [&]() {
-        SEG_OMP(parallel)
+        #pragma omp parallel
         {
             std::vector<double> dists(k);
             std::vector<double> w(k);
 
-            SEG_OMP(for schedule(static))
+            #pragma omp for schedule(static)
             for (int p = 0; p < n; ++p) {
                 const unsigned char* px = &img.data[p * 3];
                 int    nearest = 0;
@@ -100,7 +100,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         // gamma_i = sum_p u_pi^m * d_pi^2 / sum_p u_pi^m  (Pal et al. 2005)
         std::vector<double> partials(static_cast<size_t>(n_chunks) * gamma_stride, 0.0);
 
-        SEG_OMP(parallel for schedule(static))
+        #pragma omp parallel for schedule(static)
         for (int c = 0; c < n_chunks; ++c) {
             double* acc = &partials[static_cast<size_t>(c) * gamma_stride];
             for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
@@ -130,7 +130,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
         std::vector<double> inv_gamma(k);
         for (int i = 0; i < k; ++i) inv_gamma[i] = 1.0 / gamma[i];
 
-        SEG_OMP(parallel for schedule(static))
+        #pragma omp parallel for schedule(static)
         for (int p = 0; p < n; ++p) {
             const unsigned char* px = &img.data[p * 3];
             for (int i = 0; i < k; ++i) {
@@ -151,7 +151,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
 
         std::vector<double> partials(static_cast<size_t>(n_chunks) * center_stride, 0.0);
 
-        SEG_OMP(parallel for schedule(static))
+        #pragma omp parallel for schedule(static)
         for (int c = 0; c < n_chunks; ++c) {
             double* acc = &partials[static_cast<size_t>(c) * center_stride];
             for (int p = c * detail::kChunkPixels; p < detail::chunk_end(c, n); ++p) {
@@ -193,7 +193,7 @@ int pfcm_segment(Image& img, int k, int seed, int max_iters, double m, double et
     }
 
     // Hard assignment: each pixel takes the color of its highest-membership cluster
-    SEG_OMP(parallel for schedule(static))
+    #pragma omp parallel for schedule(static)
     for (int p = 0; p < n; ++p) {
         int best = 0;
         double best_u = u[p * k];

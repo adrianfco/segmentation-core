@@ -2,16 +2,6 @@
 
 #include <algorithm>
 
-// SEG_OMP(parallel for schedule(static)) expands to the matching #pragma when
-// the build has OpenMP, and to nothing otherwise, so a serial build stays free
-// of -Wunknown-pragmas warnings.
-#ifdef _OPENMP
-#  define SEG_OMP_STR(x) #x
-#  define SEG_OMP(directive) _Pragma(SEG_OMP_STR(omp directive))
-#else
-#  define SEG_OMP(directive)
-#endif
-
 namespace seg::detail {
 
 // Floating point sums over pixels are accumulated per fixed-size chunk and the

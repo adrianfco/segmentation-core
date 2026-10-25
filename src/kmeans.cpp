@@ -54,7 +54,7 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
         bool changed = false;
 
         // Assignment
-        SEG_OMP(parallel for schedule(static) reduction(||:changed))
+        #pragma omp parallel for schedule(static) reduction(||:changed)
         for (int p = 0; p < n_pixels; ++p) {
             int lbl = nearest_centroid(&img.data[p * 3], centroids);
             if (lbl != labels[p]) { labels[p] = lbl; changed = true; }
@@ -67,12 +67,12 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
         for (auto& s : sums) s.fill(0);
         std::fill(counts.begin(), counts.end(), 0);
 
-        SEG_OMP(parallel)
+        #pragma omp parallel
         {
             std::vector<Sum> local_sums(k);
             std::vector<int> local_counts(k);
 
-            SEG_OMP(for schedule(static) nowait)
+            #pragma omp for schedule(static) nowait
             for (int p = 0; p < n_pixels; ++p) {
                 int lbl = labels[p];
                 local_sums[lbl][0] += img.data[p * 3 + 0];
@@ -81,7 +81,7 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
                 local_counts[lbl]++;
             }
 
-            SEG_OMP(critical)
+            #pragma omp critical
             for (int i = 0; i < k; ++i) {
                 for (int c = 0; c < 3; ++c) sums[i][c] += local_sums[i][c];
                 counts[i] += local_counts[i];
@@ -98,7 +98,7 @@ int kmeans_segment(Image& img, int k, int seed, int max_iters) {
     }
 
     // Replace each pixel with its centroid color
-    SEG_OMP(parallel for schedule(static))
+    #pragma omp parallel for schedule(static)
     for (int p = 0; p < n_pixels; ++p) {
         const auto& c = centroids[labels[p]];
         img.data[p * 3 + 0] = static_cast<unsigned char>(std::clamp(c[0], 0.0, 255.0));

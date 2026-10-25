@@ -36,7 +36,7 @@ inline std::vector<Centroid> kmeans_plus_plus(const Image& img, int k, std::mt19
 
     std::vector<double> dist_sq(n, std::numeric_limits<double>::max());
     for (int ci = 1; ci < k; ++ci) {
-        SEG_OMP(parallel for schedule(static))
+        #pragma omp parallel for schedule(static)
         for (int p = 0; p < n; ++p) {
             dist_sq[p] = std::min(dist_sq[p], sq_dist(&img.data[p * 3], centers[ci - 1]));
         }

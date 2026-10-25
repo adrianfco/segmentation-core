@@ -59,6 +59,15 @@ if(SEG_ENABLE_OPENMP)
   endif()
 endif()
 
+# the #pragma omp lines are ignored without OpenMP, don't warn about them
+if(NOT TARGET OpenMP::OpenMP_CXX)
+  if(MSVC)
+    target_compile_options(segmentation_lib PRIVATE /wd4068)
+  else()
+    target_compile_options(segmentation_lib PRIVATE -Wno-unknown-pragmas)
+  endif()
+endif()
+
 pybind11_add_module(segmentation_core
   src/bindings.cpp
 )
